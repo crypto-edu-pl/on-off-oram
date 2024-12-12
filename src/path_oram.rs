@@ -9,12 +9,9 @@
 
 use super::{position_map::PositionMap, stash::ObliviousStash};
 use crate::{
-    bucket::{Bucket, PathOramBlock, PositionBlock},
+    bucket::{Bucket, PositionBlock},
     linear_time_oram::LinearTimeOram,
-    utils::{
-        invert_permutation_oblivious, random_permutation_of_0_through_n_exclusive, to_usize_vec,
-        CompleteBinaryTreeIndex, TreeHeight,
-    },
+    utils::{CompleteBinaryTreeIndex, TreeHeight},
     Address, BlockSize, BucketSize, Oram, OramBlock, OramError, RecursionCutoff, StashSize,
 };
 use rand::{CryptoRng, Rng};
@@ -159,8 +156,7 @@ impl<V: OramBlock, const Z: BucketSize, const AB: BlockSize> PathOram<V, Z, AB> 
     /// - `AB` is 0, 1, or is not a power of two.
     /// - `Z` is 0 or 1.
     /// - `recursion_cutoff` is 0.
-    ///
-    /// If `block_capacity` is not a power of two, returns an `InvalidConfigurationError`.
+    /// - `overflow_size` is 0.
     pub fn new_with_parameters<R: Rng + CryptoRng>(
         block_capacity: Address,
         rng: &mut R,
@@ -190,6 +186,13 @@ impl<V: OramBlock, const Z: BucketSize, const AB: BlockSize> PathOram<V, Z, AB> 
             });
         }
 
+        if overflow_size == 0 {
+            return Err(OramError::InvalidConfigurationError {
+                parameter_name: "Overflow size".to_string(),
+                parameter_value: overflow_size.to_string(),
+            });
+        }
+
         let number_of_nodes = block_capacity;
 
         let height: u64 = (block_capacity.ilog2() - 1).into();
@@ -203,57 +206,27 @@ impl<V: OramBlock, const Z: BucketSize, const AB: BlockSize> PathOram<V, Z, AB> 
         let mut physical_memory = Vec::new();
         physical_memory.resize(usize::try_from(number_of_nodes)?, Bucket::<V, Z>::default());
 
-        // The rest of this function initializes the logical memory to contain default values at every address.
-        // This is done by (1) initializing the position map with fresh random leaf identifiers,
-        // and (2) writing blocks to the physical memory with the appropriate positions, and default values.
+        // Initialize a new position map,
+        // and initialize its entries to random leaf indices.
         let mut position_map =
             PositionMap::new(block_capacity, rng, overflow_size, recursion_cutoff)?;
 
-        let slot_indices_to_addresses =
-            random_permutation_of_0_through_n_exclusive(block_capacity, rng);
-        let addresses_to_slot_indices = invert_permutation_oblivious(&slot_indices_to_addresses)?;
-        let slot_indices_to_addresses = to_usize_vec(slot_indices_to_addresses)?;
-        let mut addresses_to_slot_indices = to_usize_vec(addresses_to_slot_indices)?;
-
-        let first_leaf_index: usize = 2u64.pow(height.try_into()?).try_into()?;
+        let first_leaf_index: u64 = 2u64.pow(height.try_into()?);
         let last_leaf_index = (2 * first_leaf_index) - 1;
-
-        // Iterate over leaves, writing 2 blocks into each leaf bucket with random(ly permuted) addresses and default values.
-        let addresses_per_leaf = 2;
-        for (leaf_index, tree_bucket) in physical_memory
-            .iter_mut()
-            .enumerate()
-            .take(last_leaf_index + 1)
-            .skip(first_leaf_index)
-        {
-            for slot_index in 0..addresses_per_leaf {
-                let address_index = (leaf_index - first_leaf_index) * 2 + slot_index;
-                tree_bucket.blocks[slot_index] = PathOramBlock::<V> {
-                    value: V::default(),
-                    address: slot_indices_to_addresses[address_index].try_into()?,
-                    position: leaf_index.try_into()?,
-                };
-            }
-        }
-
-        // The address block size might not divide the block capacity.
-        // If it doesn't, we will have one block that contains dummy values.
         let ab_address: Address = AB.try_into()?;
-        let mut num_blocks = block_capacity / ab_address;
-        if block_capacity % ab_address > 0 {
-            num_blocks += 1;
-            addresses_to_slot_indices.resize((block_capacity + ab_address).try_into()?, 0);
-        }
 
-        for block_index in 0..num_blocks {
-            let mut data = [0; AB];
-            for i in 0..AB {
-                let offset: usize = (block_index * ab_address).try_into()?;
-                data[i] =
-                    (first_leaf_index + addresses_to_slot_indices[offset + i] / 2).try_into()?;
+        let num_address_blocks = if block_capacity % ab_address == 0 {
+            block_capacity / ab_address
+        } else {
+            block_capacity / ab_address + 1
+        };
+        for block_index in 0..num_address_blocks {
+            let mut data: [u64; AB] = [0; AB];
+            for address in &mut data {
+                *address = rng.gen_range(first_leaf_index..=last_leaf_index);
             }
-            let block = PositionBlock::<AB> { data };
-            position_map.write_position_block(block_index * ab_address, block, rng)?;
+            let position_block = PositionBlock { data };
+            position_map.write_position_block(block_index * ab_address, position_block, rng)?;
         }
 
         Ok(Self {
@@ -333,7 +306,7 @@ mod tests {
 
     // Test small initial stash sizes and correct resizing of stash on overflow.
     create_path_oram_correctness_tests!(4, 8, 1, 10);
-    create_path_oram_correctness_tests!(4, 8, 1, 0);
+    create_path_oram_correctness_tests!(4, 8, 1, 1);
 
     // Test small and large bucket sizes.
     create_path_oram_correctness_tests!(3, 8, 1, 40);

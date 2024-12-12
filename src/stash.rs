@@ -49,6 +49,7 @@ impl<V: OramBlock> ObliviousStash<V> {
         let mut level_assignments = vec![TreeIndex::MAX; self.len()];
         let mut level_counts = vec![0; usize::try_from(height)? + 1];
 
+        // Assign all non-dummy blocks in the stash to either the path or the overflow.
         for (i, block) in self.blocks.iter().enumerate() {
             // If `block` is a dummy, the rest of this loop iteration will be a no-op, and the values don't matter.
             let block_is_dummy = block.ct_is_dummy();
@@ -81,7 +82,8 @@ impl<V: OramBlock> ObliviousStash<V> {
                 level_assignments[i].conditional_assign(&level_u64, should_assign);
             }
             // If the block was not able to be assigned to any bucket, assign it to the overflow.
-            level_assignments[i].conditional_assign(&(TreeIndex::MAX - 1), !assigned);
+            level_assignments[i]
+                .conditional_assign(&(TreeIndex::MAX - 1), (!assigned) & (!block_is_dummy));
         }
 
         // Assign dummy blocks to the remaining non-full buckets until all buckets are full.
@@ -94,12 +96,18 @@ impl<V: OramBlock> ObliviousStash<V> {
         // If the stash is set large enough when the ORAM is initialized,
         // stash overflow will occur only with negligible probability.
         while exists_unfilled_levels.into() {
+            // Make a pass over the stash, assigning dummy blocks to unfilled levels in the path.
             for (i, block) in self
                 .blocks
                 .iter()
                 .enumerate()
                 .skip(first_unassigned_block_index)
             {
+                // Skip the last block. It is reserved for handling writes to uninitialized addresses.
+                if i == self.blocks.len() - 1 {
+                    break;
+                }
+
                 let block_free = block.ct_is_dummy();
 
                 let mut assigned: Choice = 0.into();
@@ -113,14 +121,19 @@ impl<V: OramBlock> ObliviousStash<V> {
                 }
             }
 
+            // Check that all levels have been filled.
             exists_unfilled_levels = 0.into();
             for count in level_counts.iter() {
                 let full = count.ct_eq(&(u64::try_from(Z)?));
                 exists_unfilled_levels |= !full;
             }
 
+            // If not, there must not have been enough dummy blocks remaining in the stash.
+            // That is, the stash has overflowed.
+            // So, extend the stash with STASH_GROWTH_INCREMENT more dummy blocks,
+            // and repeat the process of trying to fill all unfilled levels with dummy blocks.
             if exists_unfilled_levels.into() {
-                first_unassigned_block_index = self.blocks.len();
+                first_unassigned_block_index = self.blocks.len() - 1;
 
                 self.blocks.resize(
                     self.blocks.len() + STASH_GROWTH_INCREMENT,
@@ -161,25 +174,42 @@ impl<V: OramBlock> ObliviousStash<V> {
         value_callback: F,
     ) -> Result<V, OramError> {
         let mut result: V = V::default();
+        let mut found: Choice = 0.into();
 
+        // Iterate over stash, updating the block with address `address` if one exists.
         for block in &mut self.blocks {
             let is_requested_index = block.address.ct_eq(&address);
+            found.conditional_assign(&1.into(), is_requested_index);
 
             // Read current value of target block into `result`.
             result.conditional_assign(&block.value, is_requested_index);
-
             // Write new position into target block.
             block
                 .position
                 .conditional_assign(&new_position, is_requested_index);
-
             // If a write, write new value into target block.
             let value_to_write = value_callback(&result);
-
             block
                 .value
                 .conditional_assign(&value_to_write, is_requested_index);
         }
+
+        // If a block with address `address` is not found,
+        // initialize one by writing to the last block in the stash,
+        // which will always be a dummy block.
+        let last_block_index = self.blocks.len() - 1;
+        let last_block = &mut self.blocks[last_block_index];
+        assert!(bool::from(last_block.ct_is_dummy()));
+        last_block.conditional_assign(
+            &PathOramBlock {
+                value: value_callback(&result),
+                address,
+                position: new_position,
+            },
+            !found,
+        );
+
+        // Return the value of the found block (or the default value, if no block was found)
         Ok(result)
     }
 

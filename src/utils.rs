@@ -7,8 +7,6 @@
 
 //! Utilities.
 
-use crate::OramError;
-use rand::seq::SliceRandom;
 use rand::{CryptoRng, Rng, RngCore};
 
 use subtle::{Choice, ConditionallySelectable, ConstantTimeGreater, ConstantTimeLess};
@@ -131,63 +129,29 @@ fn helper_bitonic_merge_by_keys<
     }
 }
 
-/// Returns a random permutation of 0 through n.
-pub(crate) fn random_permutation_of_0_through_n_exclusive<R: RngCore + CryptoRng>(
-    n: u64,
-    rng: &mut R,
-) -> Vec<u64> {
-    let permuted_addresses = 0..n;
-    let mut permuted_addresses = Vec::from_iter(permuted_addresses);
-    let permuted_addresses = permuted_addresses.as_mut_slice();
-    permuted_addresses.shuffle(rng);
-    Vec::from(permuted_addresses)
-}
-
-/// Given a permutation, inverts it using oblivious (data-independent) operations.
-pub(crate) fn invert_permutation_oblivious(permutation: &[u64]) -> Result<Vec<u64>, OramError> {
-    let n: u64 = permutation.len().try_into()?;
-    let mut copied = permutation.to_owned();
-    let mut result = Vec::from_iter(0u64..n);
-    bitonic_sort_by_keys(&mut result, &mut copied);
-    Ok(result)
-}
-
-/// Converts a `Vec<u64>` to a `Vec<usize>`.
-pub(crate) fn to_usize_vec(source: Vec<u64>) -> Result<Vec<usize>, OramError> {
-    let mut result = Vec::new();
-    for e in &source {
-        let e: usize = (*e).try_into()?;
-        result.push(e);
-    }
-    Ok(result)
-}
-
 #[cfg(test)]
 mod tests {
     use super::TreeIndex;
-    use rand::{rngs::StdRng, SeedableRng};
+    use rand::{rngs::StdRng, seq::SliceRandom, CryptoRng, RngCore, SeedableRng};
     use static_assertions::const_assert_eq;
     use std::mem::size_of;
 
-    use super::{
-        bitonic_sort_by_keys, invert_permutation_oblivious,
-        random_permutation_of_0_through_n_exclusive,
-    };
+    use super::bitonic_sort_by_keys;
 
     #[test]
     fn check_size_of_tree_index() {
         const_assert_eq!(size_of::<TreeIndex>(), 8);
     }
 
-    #[test]
-    fn test_invert_permutation_oblivious() {
-        let n = 16;
-        let mut rng = StdRng::seed_from_u64(0);
-        let permutation = random_permutation_of_0_through_n_exclusive(n, &mut rng);
-        let inverse = invert_permutation_oblivious(&permutation).unwrap();
-        for i in 0..n {
-            assert_eq!(i, inverse[permutation[i as usize] as usize]);
-        }
+    pub(crate) fn random_permutation_of_0_through_n_exclusive<R: RngCore + CryptoRng>(
+        n: u64,
+        rng: &mut R,
+    ) -> Vec<u64> {
+        let permuted_addresses = 0..n;
+        let mut permuted_addresses = Vec::from_iter(permuted_addresses);
+        let permuted_addresses = permuted_addresses.as_mut_slice();
+        permuted_addresses.shuffle(rng);
+        Vec::from(permuted_addresses)
     }
 
     #[test]

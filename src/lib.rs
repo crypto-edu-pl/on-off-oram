@@ -202,4 +202,27 @@ where
         let callback = |_: &Self::V| new_value;
         self.access(index, callback, rng)
     }
+
+    /// Turn ORAM on - subsequent accesses will be oblivious.
+    /// 
+    /// Time can depend on current mode and if current mode is off, on the accesses made in off mode
+    /// (which is fine, because they are public).
+    fn turn_on(&mut self) -> Result<(), OramError>;
+
+    /// Turn ORAM off - subsequent accesses will not be oblivious.
+    /// 
+    /// Time can depend on current mode (but for our ORAMs doesn't).
+    fn turn_off(&mut self) -> Result<(), OramError>;
+
+    /// Current ORAM mode.
+    fn mode(&self) -> OramMode;
+}
+
+/// ORAM mode.
+#[derive(Clone, Copy, Debug)]
+pub enum OramMode {
+    /// ORAM is on - accesses are oblivious.
+    On,
+    /// ORAM is off - accesses are not oblivious.
+    Off,
 }

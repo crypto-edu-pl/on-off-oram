@@ -13,7 +13,8 @@ use std::sync::Once;
 static INIT: Once = Once::new();
 use crate::path_oram::PathOram;
 use crate::{
-    Address, BlockSize, BucketSize, Oram, OramBlock, OramError, RecursionCutoff, StashSize,
+    Address, BlockSize, BucketSize, OramMode, Oram, OramBlock, OramError, RecursionCutoff,
+    StashSize,
 };
 use rand::{
     distributions::{Distribution, Standard},
@@ -261,6 +262,18 @@ impl<V: OramBlock, const Z: BucketSize, const AB: BlockSize> Oram for StashSizeM
         let stash_size = self.oram.stash_occupancy();
         assert!(stash_size < 10);
         result
+    }
+
+    fn turn_on(&mut self) -> Result<(), OramError> {
+        self.oram.turn_on()
+    }
+
+    fn turn_off(&mut self) -> Result<(), OramError> {
+        self.oram.turn_off()
+    }
+
+    fn mode(&self) -> OramMode {
+        self.oram.mode()
     }
 }
 

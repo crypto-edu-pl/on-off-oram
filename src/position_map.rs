@@ -9,10 +9,10 @@
 
 use super::path_oram::PathOram;
 use crate::bucket::PositionBlock;
-use crate::StashSize;
 use crate::{
     linear_time_oram::LinearTimeOram, utils::TreeIndex, Address, BlockSize, BucketSize, Oram,
 };
+use crate::{OramMode, StashSize};
 use crate::{OramError, RecursionCutoff};
 use rand::{CryptoRng, RngCore};
 use subtle::{ConditionallySelectable, ConstantTimeEq};
@@ -121,38 +121,80 @@ impl<const AB: BlockSize, const Z: BucketSize> Oram for PositionMap<AB, Z> {
         let address_of_block = PositionMap::<AB, Z>::address_of_block(address);
         let address_within_block = PositionMap::<AB, Z>::address_within_block(address)?;
 
-        let block_callback = |block: &PositionBlock<AB>| {
-            let mut result: PositionBlock<AB> = *block;
-            for i in 0..block.data.len() {
-                let index_matches = i.ct_eq(&address_within_block);
-                let position_to_write = callback(&block.data[i]);
-                result.data[i].conditional_assign(&position_to_write, index_matches);
-            }
-            result
-        };
+        // Not constant time - leaks the mode (which is fine)
+        match self.mode() {
+            OramMode::On => {
+                let block_callback = |block: &PositionBlock<AB>| {
+                    let mut result: PositionBlock<AB> = *block;
+                    for i in 0..block.data.len() {
+                        let index_matches = i.ct_eq(&address_within_block);
+                        let position_to_write = callback(&block.data[i]);
+                        result.data[i].conditional_assign(&position_to_write, index_matches);
+                    }
+                    result
+                };
 
-        match self {
-            // Base case: index into a linear-time ORAM.
-            PositionMap::Base(linear_oram) => {
-                let block = linear_oram.access(address_of_block, block_callback, rng)?;
+                match self {
+                    // Base case: index into a linear-time ORAM.
+                    PositionMap::Base(linear_oram) => {
+                        let block = linear_oram.access(address_of_block, block_callback, rng)?;
+                        // FIXME: there is no constant-time loop for the linear base case. I think this is an error
+                        // that leaks information about the block. (That was introduced in
+                        // 8a75559dcc1fe5e154d162878d5286c942dc9156)
+                        Ok(block.data[address_within_block])
+                    }
+
+                    // Recursive case:
+                    // (1) split the address into an ORAM address (`address_of_block`) and an offset within the block (`address_within_block`)
+                    // (2) Recursively access the block at `address_of_block`, using a callback which updates only the address of interest in that block.
+                    // (3) Return the address of interest from the block.
+                    PositionMap::Recursive(block_oram) => {
+                        let block = block_oram.access(address_of_block, block_callback, rng)?;
+
+                        let mut result = u64::default();
+                        for i in 0..block.data.len() {
+                            let index_matches = i.ct_eq(&address_within_block);
+                            result.conditional_assign(&block.data[i], index_matches);
+                        }
+
+                        Ok(result)
+                    }
+                }
+            }
+            OramMode::Off => {
+                let block_callback = |block: &PositionBlock<AB>| {
+                    let mut result: PositionBlock<AB> = *block;
+                    result.data[address_within_block] = callback(&block.data[address_within_block]);
+                    result
+                };
+
+                let block = match self {
+                    PositionMap::Base(linear_oram) => linear_oram.access(address_of_block, block_callback, rng)?,
+                    PositionMap::Recursive(block_oram) => block_oram.access(address_of_block, block_callback, rng)?,
+                };
                 Ok(block.data[address_within_block])
             }
+        }
+    }
 
-            // Recursive case:
-            // (1) split the address into an ORAM address (`address_of_block`) and an offset within the block (`address_within_block`)
-            // (2) Recursively access the block at `address_of_block`, using a callback which updates only the address of interest in that block.
-            // (3) Return the address of interest from the block.
-            PositionMap::Recursive(block_oram) => {
-                let block = block_oram.access(address_of_block, block_callback, rng)?;
+    fn turn_on(&mut self) -> Result<(), OramError> {
+        match self {
+            PositionMap::Base(linear_oram) => linear_oram.turn_on(),
+            PositionMap::Recursive(block_oram) => block_oram.turn_on(),
+        }
+    }
 
-                let mut result = u64::default();
-                for i in 0..block.data.len() {
-                    let index_matches = i.ct_eq(&address_within_block);
-                    result.conditional_assign(&block.data[i], index_matches);
-                }
+    fn turn_off(&mut self) -> Result<(), OramError> {
+        match self {
+            PositionMap::Base(linear_oram) => linear_oram.turn_off(),
+            PositionMap::Recursive(block_oram) => block_oram.turn_off(),
+        }
+    }
 
-                Ok(result)
-            }
+    fn mode(&self) -> OramMode {
+        match self {
+            PositionMap::Base(linear_oram) => linear_oram.mode(),
+            PositionMap::Recursive(block_oram) => block_oram.mode(),
         }
     }
 }

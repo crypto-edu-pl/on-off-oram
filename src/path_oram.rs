@@ -9,10 +9,7 @@
 
 use super::{position_map::PositionMap, stash::ObliviousStash};
 use crate::{
-    bucket::{Bucket, PositionBlock},
-    linear_time_oram::LinearTimeOram,
-    utils::{CompleteBinaryTreeIndex, TreeHeight},
-    Address, BlockSize, BucketSize, Oram, OramBlock, OramError, RecursionCutoff, StashSize,
+    bucket::{Bucket, PositionBlock}, linear_time_oram::LinearTimeOram, utils::{CompleteBinaryTreeIndex, TreeHeight}, Address, BlockSize, BucketSize, OramMode, Oram, OramBlock, OramError, RecursionCutoff, StashSize
 };
 use rand::{CryptoRng, Rng};
 
@@ -110,6 +107,27 @@ impl<V: OramBlock> Oram for DefaultOram<V> {
         match &mut self.0 {
             DefaultOramBackend::Path(p) => p.access(index, callback, rng),
             DefaultOramBackend::Linear(l) => l.access(index, callback, rng),
+        }
+    }
+
+    fn turn_on(&mut self) -> Result<(), OramError> {
+        match &mut self.0 {
+            DefaultOramBackend::Path(p) => p.turn_on(),
+            DefaultOramBackend::Linear(l) => l.turn_on(),
+        }
+    }
+
+    fn turn_off(&mut self) -> Result<(), OramError> {
+        match &mut self.0 {
+            DefaultOramBackend::Path(p) => p.turn_on(),
+            DefaultOramBackend::Linear(l) => l.turn_on(),
+        }
+    }
+
+    fn mode(&self) -> OramMode {
+        match &self.0 {
+            DefaultOramBackend::Path(p) => p.mode(),
+            DefaultOramBackend::Linear(l) => l.mode(),
         }
     }
 }
@@ -234,6 +252,7 @@ impl<V: OramBlock, const Z: BucketSize, const AB: BlockSize> PathOram<V, Z, AB> 
             stash,
             position_map,
             height,
+            mode: OramMode::On,
         })
     }
 
@@ -261,30 +280,61 @@ impl<V: OramBlock, const Z: BucketSize, const AB: BlockSize> Oram for PathOram<V
             });
         }
 
-        // Get the position of the target block (with address `address`),
-        // and update that block's position map entry to a fresh random position
-        let new_position = CompleteBinaryTreeIndex::random_leaf(self.height, rng)?;
-        let position = self.position_map.write(address, new_position, rng)?;
+        match self.mode() {
+            OramMode::On => {
+                // Get the position of the target block (with address `address`),
+                // and update that block's position map entry to a fresh random position
+                let new_position = CompleteBinaryTreeIndex::random_leaf(self.height, rng)?;
+                let position = self.position_map.write(address, new_position, rng)?;
 
-        assert!(position.is_leaf(self.height));
+                assert!(position.is_leaf(self.height));
 
-        self.stash
-            .read_from_path(&mut self.physical_memory, position)?;
+                self.stash
+                    .read_from_path(&mut self.physical_memory, position)?;
 
-        // Scan the stash for the target block, read its value into `result`,
-        // and overwrite its position (and possibly its value).
-        let result = self.stash.access(address, new_position, callback);
+                // Scan the stash for the target block, read its value into `result`,
+                // and overwrite its position (and possibly its value).
+                let result = self.stash.access(address, new_position, callback);
 
-        // Evict blocks from the stash into the path that was just read,
-        // replacing them with dummy blocks.
-        self.stash
-            .write_to_path(&mut self.physical_memory, position)?;
+                // Evict blocks from the stash into the path that was just read,
+                // replacing them with dummy blocks.
+                self.stash
+                    .write_to_path(&mut self.physical_memory, position)?;
 
-        result
+                result
+            }
+            OramMode::Off => {
+                // Ideally we would like to always store the exact position (i.e. the bucket and offset in the bucket)
+                // in the position map. Problem: every path eviction would require updating this position for all blocks
+                // on the path (up to twice as many blocks - all taken off the path and all put on it)
+                // 
+                // let exact_position = self.position_map.read(address, rng)?.exact_position;
+                // if exact_position in physical memory {
+                //     self.physical_memory[exact_position]
+                // } else {
+                //     self.stash.read(exact_position)
+                // }
+                todo!()
+            }
+        }
     }
 
     fn block_capacity(&self) -> Result<Address, OramError> {
         Ok(u64::try_from(self.physical_memory.len())?)
+    }
+
+    fn turn_on(&mut self) -> Result<(), OramError> {
+        todo!() // Evict accessed paths
+        // TODO I think `position_map.turn_on()` should *not* be called here - all the compromised positions should
+        // get evicted during eviction of the accessed paths.
+    }
+
+    fn turn_off(&mut self) -> Result<(), OramError> {
+        self.position_map.turn_off()
+    }
+
+    fn mode(&self) -> OramMode {
+        self.position_map.mode()
     }
 }
 

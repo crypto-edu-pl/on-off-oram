@@ -7,7 +7,7 @@
 
 //! A simple linear-time implementation of Oblivious RAM.
 
-use crate::{Address, Oram, OramBlock, OramError};
+use crate::{Address, OramMode, Oram, OramBlock, OramError};
 use rand::{CryptoRng, RngCore};
 use subtle::{ConstantTimeEq, ConstantTimeLess};
 
@@ -17,6 +17,8 @@ use subtle::{ConstantTimeEq, ConstantTimeLess};
 pub struct LinearTimeOram<V: OramBlock> {
     /// The memory of the ORAM (public for benchmarking).
     pub physical_memory: Vec<V>,
+    /// Current mode.
+    mode: OramMode,
 }
 
 impl<V: OramBlock> LinearTimeOram<V> {
@@ -26,7 +28,10 @@ impl<V: OramBlock> LinearTimeOram<V> {
 
         let mut physical_memory = Vec::new();
         physical_memory.resize(usize::try_from(block_capacity)?, V::default());
-        Ok(Self { physical_memory })
+        Ok(Self {
+            physical_memory,
+            mode: OramMode::On,
+        })
     }
 }
 
@@ -49,25 +54,54 @@ impl<V: OramBlock> Oram for LinearTimeOram<V> {
             });
         }
 
-        // This is a dummy value which will always be overwritten.
-        let mut result = V::default();
+        match self.mode() {
+            OramMode::On => {
+                // This is a dummy value which will always be overwritten.
+                let mut result = V::default();
 
-        for i in 0..self.physical_memory.len() {
-            let entry = &self.physical_memory[i];
+                for i in 0..self.physical_memory.len() {
+                    let entry = &self.physical_memory[i];
 
-            let is_requested_index = (u64::try_from(i)?).ct_eq(&index);
+                    let is_requested_index = (u64::try_from(i)?).ct_eq(&index);
 
-            result.conditional_assign(entry, is_requested_index);
+                    result.conditional_assign(entry, is_requested_index);
 
-            let potential_new_value = callback(entry);
+                    let potential_new_value = callback(entry);
 
-            self.physical_memory[i].conditional_assign(&potential_new_value, is_requested_index);
+                    self.physical_memory[i].conditional_assign(&potential_new_value, is_requested_index);
+                }
+                Ok(result)
+            }
+            OramMode::Off => {
+                let index_usize = usize::try_from(index)?;
+
+                let result = self.physical_memory[index_usize];
+
+                self.physical_memory[index_usize] = callback(&result);
+
+                Ok(result)
+            }
         }
-        Ok(result)
     }
 
     fn block_capacity(&self) -> Result<Address, OramError> {
         Ok(u64::try_from(self.physical_memory.len())?)
+    }
+
+    fn turn_on(&mut self) -> Result<(), OramError> {
+        // No need to do anything - in on mode we always go through the entire memory, so it doesn't matter if the server
+        // knows where some blocks are.
+        self.mode = OramMode::On;
+        Ok(())
+    }
+
+    fn turn_off(&mut self) -> Result<(), OramError> {
+        self.mode = OramMode::Off;
+        Ok(())
+    }
+
+    fn mode(&self) -> OramMode {
+        self.mode
     }
 }
 

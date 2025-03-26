@@ -13,7 +13,7 @@ use std::sync::Once;
 static INIT: Once = Once::new();
 use crate::path_oram::PathOram;
 use crate::{
-    Address, BlockSize, BucketSize, OramMode, Oram, OramBlock, OramError, RecursionCutoff,
+    Address, BlockSize, BucketSize, Oram, OramBlock, OramError, OramMode, RecursionCutoff,
     StashSize,
 };
 use rand::{

@@ -125,12 +125,31 @@ impl<V: ConditionallySelectable> ConditionallySelectable for PathOramBlock<V> {
 /// An `OramBlock` storing addresses, intended for use in a position map ORAM.
 pub struct PositionBlock<const B: BlockSize> {
     /// The Path ORAM positions stored in this block.
-    pub data: [TreeIndex; B],
+    pub data: [BlockMetadata; B],
+}
+
+#[derive(Clone, Copy, PartialEq, Debug, Default)]
+pub struct BlockMetadata {
+    pub assigned_leaf: TreeIndex,
+    /// If the block is stored in the ORAM tree, equal to the index of its exact bucket.
+    /// Otherwise (if the block is stored in the stash or is uninitialized and stored nowhere) equal to `Self::NO_BUCKET`.
+    pub exact_bucket: TreeIndex,
+    /// If the block is stored in the ORAM tree, equal to its offset within the bucket (in blocks).
+    /// If the block is stored in the stash, equal to its offset within the stash (in blocks).
+    /// If the block is uninitialized (and stored nowhere), equal to `Self::UNINITIALIZED`.
+    pub exact_offset: u64,
+}
+
+impl BlockMetadata {
+    pub const NOT_IN_TREE: TreeIndex = TreeIndex::MAX;
+    pub const UNINITIALIZED: u64 = u64::MAX;
 }
 
 impl<const B: BlockSize> Default for PositionBlock<B> {
     fn default() -> Self {
-        Self { data: [0; B] }
+        Self {
+            data: [BlockMetadata::default(); B],
+        }
     }
 }
 
@@ -138,9 +157,23 @@ impl<const B: BlockSize> ConditionallySelectable for PositionBlock<B> {
     fn conditional_select(a: &Self, b: &Self, choice: Choice) -> Self {
         let mut result = Self::default();
         for i in 0..B {
-            result.data[i] = TreeIndex::conditional_select(&a.data[i], &b.data[i], choice);
+            result.data[i] = BlockMetadata::conditional_select(&a.data[i], &b.data[i], choice);
         }
         result
+    }
+}
+
+impl ConditionallySelectable for BlockMetadata {
+    fn conditional_select(a: &Self, b: &Self, choice: Choice) -> Self {
+        let assigned_leaf =
+            TreeIndex::conditional_select(&a.assigned_leaf, &b.assigned_leaf, choice);
+        let exact_bucket = TreeIndex::conditional_select(&a.exact_bucket, &b.exact_bucket, choice);
+        let exact_offset = u64::conditional_select(&a.exact_offset, &b.exact_offset, choice);
+        BlockMetadata {
+            assigned_leaf,
+            exact_bucket,
+            exact_offset,
+        }
     }
 }
 
@@ -154,7 +187,19 @@ impl<const B: BlockSize> Distribution<PositionBlock<B>> for Standard {
     }
 }
 
+impl Distribution<BlockMetadata> for Standard {
+    fn sample<R: rand::Rng + ?Sized>(&self, rng: &mut R) -> BlockMetadata {
+        BlockMetadata {
+            assigned_leaf: rng.gen(),
+            exact_bucket: rng.gen(),
+            exact_offset: rng.gen(),
+        }
+    }
+}
+
 impl<const B: BlockSize> OramBlock for PositionBlock<B> {}
+
+impl OramBlock for BlockMetadata {}
 
 #[derive(Clone, Copy, PartialEq)]
 /// A Path ORAM bucket.

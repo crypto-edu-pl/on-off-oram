@@ -8,12 +8,10 @@
 //! A recursive Path ORAM position map data structure.
 
 use super::path_oram::PathOram;
-use crate::bucket::PositionBlock;
-use crate::{
-    linear_time_oram::LinearTimeOram, utils::TreeIndex, Address, BlockSize, BucketSize, Oram,
-};
-use crate::{OramMode, StashSize};
+use crate::bucket::{BlockMetadata, PositionBlock};
+use crate::{linear_time_oram::LinearTimeOram, Address, BlockSize, BucketSize, Oram};
 use crate::{OramError, RecursionCutoff};
+use crate::{OramMode, StashSize};
 use rand::{CryptoRng, RngCore};
 use subtle::{ConditionallySelectable, ConstantTimeEq};
 
@@ -100,7 +98,7 @@ impl<const AB: BlockSize, const Z: BucketSize> PositionMap<AB, Z> {
 }
 
 impl<const AB: BlockSize, const Z: BucketSize> Oram for PositionMap<AB, Z> {
-    type V = TreeIndex;
+    type V = BlockMetadata;
 
     fn block_capacity(&self) -> Result<Address, OramError> {
         match self {
@@ -112,12 +110,12 @@ impl<const AB: BlockSize, const Z: BucketSize> Oram for PositionMap<AB, Z> {
         }
     }
 
-    fn access<R: RngCore + CryptoRng, F: Fn(&TreeIndex) -> TreeIndex>(
+    fn access<R: RngCore + CryptoRng, F: Fn(&BlockMetadata) -> BlockMetadata>(
         &mut self,
         address: Address,
         callback: F,
         rng: &mut R,
-    ) -> Result<TreeIndex, OramError> {
+    ) -> Result<BlockMetadata, OramError> {
         let address_of_block = PositionMap::<AB, Z>::address_of_block(address);
         let address_within_block = PositionMap::<AB, Z>::address_within_block(address)?;
 
@@ -151,7 +149,7 @@ impl<const AB: BlockSize, const Z: BucketSize> Oram for PositionMap<AB, Z> {
                     PositionMap::Recursive(block_oram) => {
                         let block = block_oram.access(address_of_block, block_callback, rng)?;
 
-                        let mut result = u64::default();
+                        let mut result = BlockMetadata::default();
                         for i in 0..block.data.len() {
                             let index_matches = i.ct_eq(&address_within_block);
                             result.conditional_assign(&block.data[i], index_matches);
@@ -169,8 +167,12 @@ impl<const AB: BlockSize, const Z: BucketSize> Oram for PositionMap<AB, Z> {
                 };
 
                 let block = match self {
-                    PositionMap::Base(linear_oram) => linear_oram.access(address_of_block, block_callback, rng)?,
-                    PositionMap::Recursive(block_oram) => block_oram.access(address_of_block, block_callback, rng)?,
+                    PositionMap::Base(linear_oram) => {
+                        linear_oram.access(address_of_block, block_callback, rng)?
+                    }
+                    PositionMap::Recursive(block_oram) => {
+                        block_oram.access(address_of_block, block_callback, rng)?
+                    }
                 };
                 Ok(block.data[address_within_block])
             }

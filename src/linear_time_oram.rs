@@ -7,7 +7,7 @@
 
 //! A simple linear-time implementation of Oblivious RAM.
 
-use crate::{Address, OramMode, Oram, OramBlock, OramError};
+use crate::{Address, Oram, OramBlock, OramError, OramMode};
 use rand::{CryptoRng, RngCore};
 use subtle::{ConstantTimeEq, ConstantTimeLess};
 
@@ -68,7 +68,8 @@ impl<V: OramBlock> Oram for LinearTimeOram<V> {
 
                     let potential_new_value = callback(entry);
 
-                    self.physical_memory[i].conditional_assign(&potential_new_value, is_requested_index);
+                    self.physical_memory[i]
+                        .conditional_assign(&potential_new_value, is_requested_index);
                 }
                 Ok(result)
             }

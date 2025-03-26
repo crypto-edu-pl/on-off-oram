@@ -204,13 +204,13 @@ where
     }
 
     /// Turn ORAM on - subsequent accesses will be oblivious.
-    /// 
+    ///
     /// Time can depend on current mode and if current mode is off, on the accesses made in off mode
     /// (which is fine, because they are public).
     fn turn_on(&mut self) -> Result<(), OramError>;
 
     /// Turn ORAM off - subsequent accesses will not be oblivious.
-    /// 
+    ///
     /// Time can depend on current mode (but for our ORAMs doesn't).
     fn turn_off(&mut self) -> Result<(), OramError>;
 

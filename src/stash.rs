@@ -26,9 +26,9 @@ pub struct ObliviousStash<V: OramBlock> {
 
 #[derive(Debug, Clone, Copy)]
 pub struct StashEntry<V: OramBlock> {
-    block: PathOramBlock<V>,
-    exact_bucket: TreeIndex,
-    exact_offset: u64,
+    pub block: PathOramBlock<V>,
+    pub exact_bucket: TreeIndex,
+    pub exact_offset: u64,
 }
 
 impl<V: OramBlock> StashEntry<V> {
@@ -248,9 +248,6 @@ impl<V: OramBlock> ObliviousStash<V> {
             },
             !found,
         );
-        last_entry
-            .exact_offset
-            .conditional_assign(&last_block_index.try_into()?, !found);
 
         // Return the value of the found block (or the default value, if no block was found)
         Ok(result)
@@ -288,5 +285,9 @@ impl<V: OramBlock> ObliviousStash<V> {
         }
 
         Ok(())
+    }
+
+    pub fn entries(&self) -> &Vec<StashEntry<V>> {
+        &self.entries
     }
 }

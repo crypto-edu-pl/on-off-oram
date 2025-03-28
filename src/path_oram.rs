@@ -16,6 +16,7 @@ use crate::{
     StashSize,
 };
 use rand::{CryptoRng, Rng};
+use subtle::{ConditionallySelectable, ConstantTimeEq};
 
 /// The default cutoff size in blocks
 /// below which `PathOram` uses a linear position map instead of a recursive one.
@@ -306,7 +307,19 @@ impl<V: OramBlock, const Z: BucketSize, const AB: BlockSize> Oram for PathOram<V
                 self.stash
                     .write_to_path(&mut self.physical_memory, metadata.assigned_leaf)?;
 
-                // TODO update the position map
+                // TODO optimize this using batching
+                for (i, entry) in self.stash.entries().iter().enumerate() {
+                    let is_in_tree = entry.exact_bucket.ct_ne(&BlockMetadata::NOT_IN_TREE);
+                    let exact_offset =
+                        u64::conditional_select(&i.try_into()?, &entry.exact_offset, is_in_tree);
+                    let new_metadata = BlockMetadata {
+                        assigned_leaf: entry.block.position,
+                        exact_bucket: entry.exact_bucket,
+                        exact_offset,
+                    };
+                    self.position_map
+                        .write(entry.block.address, new_metadata, rng)?;
+                }
 
                 result
             }

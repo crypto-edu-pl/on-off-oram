@@ -179,10 +179,10 @@ impl<const AB: BlockSize, const Z: BucketSize> Oram for PositionMap<AB, Z> {
         }
     }
 
-    fn turn_on(&mut self) -> Result<(), OramError> {
+    fn turn_on<R: RngCore + CryptoRng>(&mut self, rng: &mut R) -> Result<(), OramError> {
         match self {
-            PositionMap::Base(linear_oram) => linear_oram.turn_on(),
-            PositionMap::Recursive(block_oram) => block_oram.turn_on(),
+            PositionMap::Base(linear_oram) => linear_oram.turn_on(rng),
+            PositionMap::Recursive(block_oram) => block_oram.turn_on(rng),
         }
     }
 
@@ -190,6 +190,13 @@ impl<const AB: BlockSize, const Z: BucketSize> Oram for PositionMap<AB, Z> {
         match self {
             PositionMap::Base(linear_oram) => linear_oram.turn_off(),
             PositionMap::Recursive(block_oram) => block_oram.turn_off(),
+        }
+    }
+
+    fn turn_on_without_evicting(&mut self) -> Result<(), OramError> {
+        match self {
+            PositionMap::Base(linear_oram) => linear_oram.turn_on_without_evicting(),
+            PositionMap::Recursive(block_oram) => block_oram.turn_on_without_evicting(),
         }
     }
 

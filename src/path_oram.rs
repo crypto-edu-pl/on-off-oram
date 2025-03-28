@@ -7,6 +7,8 @@
 
 //! An implementation of Path ORAM.
 
+use std::{collections::HashSet, mem};
+
 use super::{position_map::PositionMap, stash::ObliviousStash};
 use crate::{
     bucket::{BlockMetadata, Bucket, PositionBlock},
@@ -15,7 +17,7 @@ use crate::{
     Address, BlockSize, BucketSize, Oram, OramBlock, OramError, OramMode, RecursionCutoff,
     StashSize,
 };
-use rand::{CryptoRng, Rng};
+use rand::{CryptoRng, Rng, RngCore};
 use subtle::{ConditionallySelectable, ConstantTimeEq};
 
 /// The default cutoff size in blocks
@@ -81,6 +83,13 @@ pub struct PathOram<V: OramBlock, const Z: BucketSize, const AB: BlockSize> {
     position_map: PositionMap<AB, Z>,
     /// The height of the Path ORAM tree data structure.
     height: TreeHeight,
+    /// The set of blocks accessed in off mode. Their paths will be evicted when ORAM is turned on.
+    ///
+    /// This is not an oblivious data structure, but we use it only in off mode so it's fine.
+    ///
+    /// TODO Probably only the top-level ORAM needs to track this (the position map can be evicted as a part of evicting
+    /// the top-level ORAM)
+    blocks_accessed_in_off_mode: HashSet<Address>,
 }
 
 /// An `Oram` suitable for most use cases, with reasonable default choices of parameters.
@@ -115,17 +124,24 @@ impl<V: OramBlock> Oram for DefaultOram<V> {
         }
     }
 
-    fn turn_on(&mut self) -> Result<(), OramError> {
+    fn turn_on<R: RngCore + CryptoRng>(&mut self, rng: &mut R) -> Result<(), OramError> {
         match &mut self.0 {
-            DefaultOramBackend::Path(p) => p.turn_on(),
-            DefaultOramBackend::Linear(l) => l.turn_on(),
+            DefaultOramBackend::Path(p) => p.turn_on(rng),
+            DefaultOramBackend::Linear(l) => l.turn_on(rng),
         }
     }
 
     fn turn_off(&mut self) -> Result<(), OramError> {
         match &mut self.0 {
-            DefaultOramBackend::Path(p) => p.turn_on(),
-            DefaultOramBackend::Linear(l) => l.turn_on(),
+            DefaultOramBackend::Path(p) => p.turn_off(),
+            DefaultOramBackend::Linear(l) => l.turn_off(),
+        }
+    }
+
+    fn turn_on_without_evicting(&mut self) -> Result<(), OramError> {
+        match &mut self.0 {
+            DefaultOramBackend::Path(p) => p.turn_on_without_evicting(),
+            DefaultOramBackend::Linear(l) => l.turn_on_without_evicting(),
         }
     }
 
@@ -259,6 +275,7 @@ impl<V: OramBlock, const Z: BucketSize, const AB: BlockSize> PathOram<V, Z, AB> 
             stash,
             position_map,
             height,
+            blocks_accessed_in_off_mode: HashSet::new(),
         })
     }
 
@@ -308,7 +325,7 @@ impl<V: OramBlock, const Z: BucketSize, const AB: BlockSize> Oram for PathOram<V
                     .write_to_path(&mut self.physical_memory, metadata.assigned_leaf)?;
 
                 // TODO optimize this using batching
-                for (i, entry) in self.stash.entries().iter().enumerate() {
+                for (i, entry) in self.stash.entries.iter().enumerate() {
                     let is_in_tree = entry.exact_bucket.ct_ne(&BlockMetadata::NOT_IN_TREE);
                     let exact_offset =
                         u64::conditional_select(&i.try_into()?, &entry.exact_offset, is_in_tree);
@@ -324,17 +341,23 @@ impl<V: OramBlock, const Z: BucketSize, const AB: BlockSize> Oram for PathOram<V
                 result
             }
             OramMode::Off => {
-                // Ideally we would like to always store the exact position (i.e. the bucket and offset in the bucket)
-                // in the position map. Problem: every path eviction would require updating this position for all blocks
-                // on the path (up to twice as many blocks - all taken off the path and all put on it)
-                //
-                // let exact_position = self.position_map.read(address, rng)?.exact_position;
-                // if exact_position in physical memory {
-                //     self.physical_memory[exact_position]
-                // } else {
-                //     self.stash.read(exact_position)
-                // }
-                todo!()
+                // We are in off mode so we don't care about oblivious operations.
+                self.blocks_accessed_in_off_mode.insert(address);
+
+                let metadata = self.position_map.read(address, rng)?;
+                let block = if metadata.exact_bucket == BlockMetadata::NOT_IN_TREE {
+                    let stash_entry =
+                        &mut self.stash.entries[usize::try_from(metadata.exact_offset)?];
+                    &mut stash_entry.block
+                } else {
+                    let bucket = &mut self.physical_memory[usize::try_from(metadata.exact_bucket)?];
+                    &mut bucket.blocks[usize::try_from(metadata.exact_offset)?]
+                };
+
+                let result = block.value;
+                block.value = callback(&block.value);
+
+                Ok(result)
             }
         }
     }
@@ -343,16 +366,27 @@ impl<V: OramBlock, const Z: BucketSize, const AB: BlockSize> Oram for PathOram<V
         Ok(u64::try_from(self.physical_memory.len())?)
     }
 
-    fn turn_on(&mut self) -> Result<(), OramError> {
-        todo!() // Evict accessed paths
-                // TODO I think `position_map.turn_on()` should *not* be called here - all the compromised positions should
-                // get evicted during eviction of the accessed paths.
-                // Although maybe as an optimization it would be better to evict each level of recursion in one batch, in which
-                // case we do want to call turn_on()
+    fn turn_on<R: RngCore + CryptoRng>(&mut self, rng: &mut R) -> Result<(), OramError> {
+        // TODO optimize this using batching. In a simpler approach we can batch based on the positions in the top-level ORAM.
+        // In a more complex approach we could evict and batch each recursive layer separately.
+
+        // Evictions in the position map will happen during the reads below
+        self.position_map.turn_on_without_evicting()?;
+
+        for address in mem::take(&mut self.blocks_accessed_in_off_mode) {
+            // Reading the block causes its path to be evicted.
+            self.read(address, rng)?;
+        }
+
+        Ok(())
     }
 
     fn turn_off(&mut self) -> Result<(), OramError> {
         self.position_map.turn_off()
+    }
+
+    fn turn_on_without_evicting(&mut self) -> Result<(), OramError> {
+        self.position_map.turn_on_without_evicting()
     }
 
     fn mode(&self) -> OramMode {

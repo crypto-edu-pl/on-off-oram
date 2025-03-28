@@ -89,15 +89,19 @@ impl<V: OramBlock> Oram for LinearTimeOram<V> {
         Ok(u64::try_from(self.physical_memory.len())?)
     }
 
-    fn turn_on(&mut self) -> Result<(), OramError> {
+    fn turn_on<R: RngCore + CryptoRng>(&mut self, _rng: &mut R) -> Result<(), OramError> {
         // No need to do anything - in on mode we always go through the entire memory, so it doesn't matter if the server
         // knows where some blocks are.
-        self.mode = OramMode::On;
-        Ok(())
+        self.turn_on_without_evicting()
     }
 
     fn turn_off(&mut self) -> Result<(), OramError> {
         self.mode = OramMode::Off;
+        Ok(())
+    }
+
+    fn turn_on_without_evicting(&mut self) -> Result<(), OramError> {
+        self.mode = OramMode::On;
         Ok(())
     }
 

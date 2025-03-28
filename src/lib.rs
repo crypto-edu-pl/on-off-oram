@@ -207,12 +207,16 @@ where
     ///
     /// Time can depend on current mode and if current mode is off, on the accesses made in off mode
     /// (which is fine, because they are public).
-    fn turn_on(&mut self) -> Result<(), OramError>;
+    fn turn_on<R: RngCore + CryptoRng>(&mut self, rng: &mut R) -> Result<(), OramError>;
 
     /// Turn ORAM off - subsequent accesses will not be oblivious.
     ///
     /// Time can depend on current mode (but for our ORAMs doesn't).
     fn turn_off(&mut self) -> Result<(), OramError>;
+
+    /// Make the ORAM operate in on mode, but do not restore obliviousness. This method is for situations when
+    /// an upper layer will cause all blocks accessed in off mode to be evicted by making ORAM accesses.
+    fn turn_on_without_evicting(&mut self) -> Result<(), OramError>;
 
     /// Current ORAM mode.
     fn mode(&self) -> OramMode;

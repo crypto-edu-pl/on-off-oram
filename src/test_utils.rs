@@ -21,6 +21,7 @@ use rand::{
     rngs::StdRng,
     Rng, SeedableRng,
 };
+use rand::{CryptoRng, RngCore};
 use simplelog::{Config, WriteLogger};
 
 // For use in manual testing and inspection.
@@ -264,12 +265,16 @@ impl<V: OramBlock, const Z: BucketSize, const AB: BlockSize> Oram for StashSizeM
         result
     }
 
-    fn turn_on(&mut self) -> Result<(), OramError> {
-        self.oram.turn_on()
+    fn turn_on<R: RngCore + CryptoRng>(&mut self, rng: &mut R) -> Result<(), OramError> {
+        self.oram.turn_on(rng)
     }
 
     fn turn_off(&mut self) -> Result<(), OramError> {
         self.oram.turn_off()
+    }
+
+    fn turn_on_without_evicting(&mut self) -> Result<(), OramError> {
+        self.oram.turn_on_without_evicting()
     }
 
     fn mode(&self) -> OramMode {

@@ -37,7 +37,8 @@ pub const DEFAULT_POSITIONS_PER_BLOCK: BlockSize = 8;
 /// The default number of overflow blocks that the Path ORAM stash (and recursive stashes) can store.
 pub const DEFAULT_STASH_OVERFLOW_SIZE: StashSize = 40;
 
-const LINEAR_TIME_ORAM_CUTOFF: RecursionCutoff = 1 << 10;
+/// The cutoff size in blocks below which `DefaultOram` is simply a linear time ORAM.
+pub const LINEAR_TIME_ORAM_CUTOFF: RecursionCutoff = 1 << 10;
 
 /// A doubly oblivious Path ORAM.
 ///

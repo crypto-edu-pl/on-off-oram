@@ -7,7 +7,10 @@
 
 //! An implementation of Path ORAM.
 
-use std::{collections::HashSet, mem};
+use std::{
+    collections::{hash_map, HashMap},
+    mem,
+};
 
 use super::{position_map::PositionMap, stash::ObliviousStash};
 use crate::{
@@ -89,7 +92,13 @@ pub struct PathOram<V: OramBlock, const Z: BucketSize, const AB: BlockSize> {
     ///
     /// TODO Probably only the top-level ORAM needs to track this (the position map can be evicted as a part of evicting
     /// the top-level ORAM)
-    blocks_accessed_in_off_mode: HashSet<Address>,
+    blocks_accessed_in_off_mode: HashMap<Address, BlockLocation>,
+}
+
+#[derive(Debug, Copy, Clone)]
+enum BlockLocation {
+    OramTree { bucket: usize, offset: usize },
+    Stash { offset: usize },
 }
 
 /// An `Oram` suitable for most use cases, with reasonable default choices of parameters.
@@ -275,7 +284,7 @@ impl<V: OramBlock, const Z: BucketSize, const AB: BlockSize> PathOram<V, Z, AB> 
             stash,
             position_map,
             height,
-            blocks_accessed_in_off_mode: HashSet::new(),
+            blocks_accessed_in_off_mode: HashMap::new(),
         })
     }
 
@@ -342,16 +351,39 @@ impl<V: OramBlock, const Z: BucketSize, const AB: BlockSize> Oram for PathOram<V
             }
             OramMode::Off => {
                 // We are in off mode so we don't care about oblivious operations.
-                self.blocks_accessed_in_off_mode.insert(address);
 
-                let metadata = self.position_map.read(address, rng)?;
-                let block = if metadata.exact_bucket == BlockMetadata::NOT_IN_TREE {
-                    let stash_entry =
-                        &mut self.stash.entries[usize::try_from(metadata.exact_offset)?];
-                    &mut stash_entry.block
-                } else {
-                    let bucket = &mut self.physical_memory[usize::try_from(metadata.exact_bucket)?];
-                    &mut bucket.blocks[usize::try_from(metadata.exact_offset)?]
+                // Cache the block position - we have log N levels of recursion, so without caching
+                // we still have O(log N) overhead on every access
+                let block_location = match self.blocks_accessed_in_off_mode.entry(address) {
+                    hash_map::Entry::Occupied(occupied) => *occupied.get(),
+                    hash_map::Entry::Vacant(vacant) => {
+                        let metadata = self.position_map.read(address, rng)?;
+
+                        let block_location = if metadata.exact_bucket == BlockMetadata::NOT_IN_TREE
+                        {
+                            BlockLocation::Stash {
+                                offset: metadata.exact_offset.try_into()?,
+                            }
+                        } else {
+                            BlockLocation::OramTree {
+                                bucket: metadata.exact_bucket.try_into()?,
+                                offset: metadata.exact_offset.try_into()?,
+                            }
+                        };
+
+                        *vacant.insert(block_location)
+                    }
+                };
+
+                let block = match block_location {
+                    BlockLocation::Stash { offset } => {
+                        let stash_entry = &mut self.stash.entries[offset];
+                        &mut stash_entry.block
+                    }
+                    BlockLocation::OramTree { bucket, offset } => {
+                        let bucket = &mut self.physical_memory[bucket];
+                        &mut bucket.blocks[offset]
+                    }
                 };
 
                 let result = block.value;
@@ -373,9 +405,9 @@ impl<V: OramBlock, const Z: BucketSize, const AB: BlockSize> Oram for PathOram<V
         // Evictions in the position map will happen during the reads below
         self.position_map.turn_on_without_evicting()?;
 
-        for address in mem::take(&mut self.blocks_accessed_in_off_mode) {
+        for address in mem::take(&mut self.blocks_accessed_in_off_mode).keys() {
             // Reading the block causes its path to be evicted.
-            self.read(address, rng)?;
+            self.read(*address, rng)?;
         }
 
         Ok(())

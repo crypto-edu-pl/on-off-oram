@@ -136,10 +136,17 @@ impl<const AB: BlockSize, const Z: BucketSize> Oram for PositionMap<AB, Z> {
                     // Base case: index into a linear-time ORAM.
                     PositionMap::Base(linear_oram) => {
                         let block = linear_oram.access(address_of_block, block_callback, rng)?;
-                        // FIXME: there is no constant-time loop for the linear base case. I think this is an error
-                        // that leaks information about the block. (That was introduced in
+
+                        // XXX: there was no access-whole-block loop for the linear base case. I think this was an error
+                        // that leaked information about the block. (That was introduced in
                         // 8a75559dcc1fe5e154d162878d5286c942dc9156)
-                        Ok(block.data[address_within_block])
+                        let mut result = BlockMetadata::default();
+                        for i in 0..block.data.len() {
+                            let index_matches = i.ct_eq(&address_within_block);
+                            result.conditional_assign(&block.data[i], index_matches);
+                        }
+
+                        Ok(result)
                     }
 
                     // Recursive case:

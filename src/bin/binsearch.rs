@@ -1,4 +1,7 @@
-use std::time::Instant;
+use std::{
+    cmp::{max, min},
+    time::Instant,
+};
 
 use rand::{distributions::Standard, rngs::OsRng, Rng};
 use static_assertions::const_assert;
@@ -14,7 +17,10 @@ fn main() {
 
     let mut oram_array = DefaultOram::<u64>::new(ARRAY_SIZE, &mut rng).unwrap();
 
-    let mut values = (&mut rng).sample_iter(Standard).take(ARRAY_SIZE as usize).collect::<Vec<u64>>();
+    let mut values = (&mut rng)
+        .sample_iter(Standard)
+        .take(ARRAY_SIZE as usize)
+        .collect::<Vec<u64>>();
     values.sort();
 
     for (i, value) in values.iter().enumerate() {
@@ -23,7 +29,7 @@ fn main() {
 
     // Run for a fixed number of iterations to prevent leakage from the number of iterations and keep execution times consistent
     let n_iterations = ARRAY_SIZE.next_power_of_two().ilog2();
-    
+
     for _ in 0..20 {
         let search_val = rng.gen::<u64>();
 
@@ -36,14 +42,12 @@ fn main() {
             let mid = (l + r) / 2;
             let val = oram_array.read(mid, &mut rng).unwrap();
 
-            if l <= r {
-                if val < search_val {
-                    l = mid + 1;
-                } else if val > search_val {
-                    r = mid - 1;
-                } else {
-                    found = Some(mid);
-                }
+            if val < search_val {
+                l = min(mid + 1, r);
+            } else if val > search_val {
+                r = max(mid - 1, l);
+            } else {
+                found = Some(mid);
             }
         }
         let duration = start.elapsed();

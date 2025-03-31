@@ -275,8 +275,7 @@ impl<V: OramBlock> ObliviousStash<V> {
             let bucket_index = position.ct_node_on_path(i, height);
             let bucket = physical_memory[usize::try_from(bucket_index)?];
             for slot_index in 0..Z {
-                let stash_index = Z * (usize::try_from(i)?) + slot_index;
-                self.entries[stash_index] = StashEntry {
+                self.entries[Z * (usize::try_from(i)?) + slot_index] = StashEntry {
                     block: bucket.blocks[slot_index],
                     exact_bucket: BlockMetadata::NOT_IN_TREE,
                     exact_offset: StashEntry::<V>::DUMMY_OFFSET,

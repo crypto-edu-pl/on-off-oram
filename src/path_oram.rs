@@ -257,8 +257,11 @@ impl<V: OramBlock, const Z: BucketSize, const AB: BlockSize> PathOram<V, Z, AB> 
 
         // Initialize a new position map,
         // and initialize its entries to random leaf indices.
+        //
+        // Add an extra entry at the end of the position map that can be written when we are updating the exact
+        // positions of blocks and we encounter a dummy block (since dummy blocks do not have position map entries).
         let mut position_map =
-            PositionMap::new(block_capacity, rng, overflow_size, recursion_cutoff)?;
+            PositionMap::new(block_capacity + 1, rng, overflow_size, recursion_cutoff)?;
 
         let first_leaf_index: u64 = 2u64.pow(height.try_into()?);
         let last_leaf_index = (2 * first_leaf_index) - 1;
@@ -336,16 +339,25 @@ impl<V: OramBlock, const Z: BucketSize, const AB: BlockSize> Oram for PathOram<V
 
                 // TODO optimize this using batching
                 for (i, entry) in self.stash.entries.iter().enumerate() {
+                    let entry_is_dummy = entry.block.ct_is_dummy();
+                    let entry_address = Address::conditional_select(
+                        &entry.block.address,
+                        &self.block_capacity()?,
+                        entry_is_dummy,
+                    );
+
                     let is_in_tree = entry.exact_bucket.ct_ne(&BlockMetadata::NOT_IN_TREE);
                     let exact_offset =
                         u64::conditional_select(&i.try_into()?, &entry.exact_offset, is_in_tree);
+
+                    // The metadata is meaningful only if the entry does not contain a dummy block - otherwise it will be
+                    // written to the dummy position at the end of the position map.
                     let new_metadata = BlockMetadata {
                         assigned_leaf: entry.block.position,
                         exact_bucket: entry.exact_bucket,
                         exact_offset,
                     };
-                    self.position_map
-                        .write(entry.block.address, new_metadata, rng)?;
+                    self.position_map.write(entry_address, new_metadata, rng)?;
                 }
 
                 result

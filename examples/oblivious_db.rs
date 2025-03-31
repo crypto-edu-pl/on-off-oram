@@ -15,8 +15,7 @@ use rand::{rngs::OsRng, Rng};
 const BLOCK_SIZE: BlockSize = 4096;
 const DB_SIZE: Address = 64;
 // A stand-in for the indexed database you want to obliviously serve.
-const DATABASE: [[u8; BLOCK_SIZE as usize]; DB_SIZE as usize] =
-    [[0; BLOCK_SIZE as usize]; DB_SIZE as usize];
+static DATABASE: [[u8; BLOCK_SIZE]; DB_SIZE as usize] = [[0; BLOCK_SIZE]; DB_SIZE as usize];
 
 fn main() -> Result<(), OramError> {
     let mut rng = OsRng;

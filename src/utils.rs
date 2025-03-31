@@ -161,14 +161,14 @@ mod tests {
         let mut keys: Vec<u64> = Vec::new();
         let n = 128;
         for e in random_permutation_of_0_through_n_exclusive(n, &mut rng) {
-            items.push(e as u64);
-            keys.push((e + (2 * n)) as u64);
+            items.push(e);
+            keys.push(e + (2 * n));
         }
 
         bitonic_sort_by_keys(&mut items, &mut keys);
         for i in 0..(items.len() - 1) {
             assert!(keys[i] <= keys[i + 1]);
-            assert_eq!(keys[i], items[i] + (2 * (n as u64)));
+            assert_eq!(keys[i], items[i] + (2 * n));
         }
     }
 }

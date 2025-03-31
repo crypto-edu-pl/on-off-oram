@@ -1,5 +1,5 @@
 use std::{
-    cmp::{max, min},
+    cmp::{max, min, Ordering},
     time::Instant,
 };
 
@@ -42,12 +42,10 @@ fn main() {
             let mid = (l + r) / 2;
             let val = oram_array.read(mid, &mut rng).unwrap();
 
-            if val < search_val {
-                l = min(mid + 1, r);
-            } else if val > search_val {
-                r = max(mid - 1, l);
-            } else {
-                found = Some(mid);
+            match val.cmp(&search_val) {
+                Ordering::Less => l = min(mid + 1, r),
+                Ordering::Greater => r = max(mid - 1, l),
+                Ordering::Equal => found = Some(mid),
             }
         }
         let duration = start.elapsed();

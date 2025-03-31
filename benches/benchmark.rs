@@ -41,7 +41,7 @@ impl<const B: BlockSize> Benchmarkable for DefaultOram<BlockValue<B>> {
 // Here, all benchmarks are run for linear and path ORAMs, and block sizes of 64 and 4096.
 criterion_group!(
     name = benches;
-    config = Criterion::default().warm_up_time(Duration::new(0, 1_000_000_00)).measurement_time(Duration::new(0, 1_000_000_00)).sample_size(10);
+    config = Criterion::default().warm_up_time(Duration::new(0, 100_000_000)).measurement_time(Duration::new(0, 100_000_000)).sample_size(10);
     targets =
     benchmark_read::<DefaultOram<BlockValue<4096>>>,
     benchmark_write::<DefaultOram<BlockValue<4096>>>,
@@ -109,7 +109,7 @@ fn benchmark_random_operations<const B: BlockSize, T: Oram<V = BlockValue<B>> + 
     for capacity in CAPACITIES_TO_BENCHMARK {
         let mut oram = T::new(capacity, &mut rng);
 
-        let number_of_operations_to_run = 64 as usize;
+        let number_of_operations_to_run = 64_usize;
 
         let block_size = B;
         let capacity = oram.block_capacity().unwrap();
@@ -123,8 +123,8 @@ fn benchmark_random_operations<const B: BlockSize, T: Oram<V = BlockValue<B>> + 
         let mut read_versus_write_randomness = vec![false; number_of_operations_to_run];
         let capacity_usize: usize = capacity.try_into().unwrap();
         let mut value_randomness = vec![0u8; block_size * capacity_usize];
-        for i in 0..number_of_operations_to_run {
-            index_randomness[i] = rng.gen_range(0..capacity);
+        for entry in &mut index_randomness {
+            *entry = rng.gen_range(0..capacity);
         }
 
         rng.fill(&mut read_versus_write_randomness[..]);

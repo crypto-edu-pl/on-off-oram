@@ -87,6 +87,8 @@ pub struct PathOram<V: OramBlock, const Z: BucketSize, const AB: BlockSize> {
     position_map: PositionMap<AB, Z>,
     /// The height of the Path ORAM tree data structure.
     height: TreeHeight,
+    /// Current mode.
+    mode: OramMode,
     /// The set of blocks accessed in off mode. Their paths will be evicted when ORAM is turned on.
     ///
     /// This is not an oblivious data structure, but we use it only in off mode so it's fine.
@@ -288,6 +290,7 @@ impl<V: OramBlock, const Z: BucketSize, const AB: BlockSize> PathOram<V, Z, AB> 
             stash,
             position_map,
             height,
+            mode: OramMode::On,
             blocks_accessed_in_off_mode: HashMap::new(),
         })
     }
@@ -415,6 +418,7 @@ impl<V: OramBlock, const Z: BucketSize, const AB: BlockSize> Oram for PathOram<V
         // TODO optimize this using batching. In a simpler approach we can batch based on the positions in the top-level ORAM.
         // In a more complex approach we could evict and batch each recursive layer separately.
 
+        self.mode = OramMode::On;
         // Evictions in the position map will happen during the reads below
         self.position_map.turn_on_without_evicting()?;
 
@@ -427,6 +431,7 @@ impl<V: OramBlock, const Z: BucketSize, const AB: BlockSize> Oram for PathOram<V
     }
 
     fn turn_off(&mut self) -> Result<(), OramError> {
+        self.mode = OramMode::Off;
         self.position_map.turn_off()
     }
 
@@ -435,7 +440,7 @@ impl<V: OramBlock, const Z: BucketSize, const AB: BlockSize> Oram for PathOram<V
     }
 
     fn mode(&self) -> OramMode {
-        self.position_map.mode()
+        self.mode
     }
 }
 

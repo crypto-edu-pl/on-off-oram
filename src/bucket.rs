@@ -70,7 +70,7 @@ pub(crate) struct PathOramBlock<V> {
 }
 
 impl<V: OramBlock> PathOramBlock<V> {
-    const DUMMY_ADDRESS: Address = Address::MAX;
+    pub const DUMMY_ADDRESS: Address = Address::MAX;
     const DUMMY_POSITION: TreeIndex = 0;
 
     pub fn dummy() -> Self {

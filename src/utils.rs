@@ -32,6 +32,7 @@ where
     ) -> Result<Vec<Self>, TryFromIntError>;
     fn ct_depth(&self) -> TreeHeight;
     fn is_leaf(&self, height: TreeHeight) -> bool;
+    fn depest_common_ancestor(&self, other: &Self) -> Self;
 }
 
 impl CompleteBinaryTreeIndex for TreeIndex {
@@ -87,6 +88,16 @@ impl CompleteBinaryTreeIndex for TreeIndex {
         assert_ne!(*self, 0);
 
         self.ct_depth() == height
+    }
+
+    fn depest_common_ancestor(&self, other: &Self) -> Self {
+        // The subsequent bits of the leaf index correspond to choosing the left/right child while descending
+        // along the path from the root. The first bit that is different corresponds to the first time a different
+        // child is chosen and the paths diverge
+        let nonequal_bits_mask = self ^ other;
+        let length_of_max_prefix_of_equal_bits = nonequal_bits_mask.leading_zeros();
+        let length_of_diverged_paths = Self::BITS - length_of_max_prefix_of_equal_bits;
+        self >> length_of_diverged_paths
     }
 }
 

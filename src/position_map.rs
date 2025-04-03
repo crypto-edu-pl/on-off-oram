@@ -243,7 +243,7 @@ impl<const AB: BlockSize, const Z: BucketSize> Oram for PositionMap<AB, Z> {
 
     fn batch_access<R: RngCore + CryptoRng, F: Fn(&Self::V) -> Self::V>(
         &mut self,
-        callbacks: &Vec<(Address, F)>,
+        callbacks: &[(Address, F)],
         rng: &mut R,
     ) -> Result<Vec<Self::V>, OramError> {
         todo!()

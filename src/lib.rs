@@ -205,13 +205,13 @@ where
 
     fn batch_access<R: RngCore + CryptoRng, F: Fn(&Self::V) -> Self::V>(
         &mut self,
-        callbacks: &Vec<(Address, F)>,
+        callbacks: &[(Address, F)],
         rng: &mut R,
     ) -> Result<Vec<Self::V>, OramError>;
 
     fn batch_read<R: RngCore + CryptoRng>(
         &mut self,
-        indices: &Vec<Address>,
+        indices: &[Address],
         rng: &mut R,
     ) -> Result<Vec<Self::V>, OramError> {
         let callback = |x: &Self::V| *x;

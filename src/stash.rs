@@ -22,6 +22,7 @@ const STASH_GROWTH_INCREMENT: usize = 10;
 pub struct ObliviousStash<V: OramBlock> {
     pub entries: Vec<StashEntry<V>>,
     pub path_size: StashSize,
+    prefix_last_written_to_physical_memory: usize,
 }
 
 #[derive(Debug, Clone, Copy)]
@@ -64,11 +65,16 @@ impl<V: OramBlock> ObliviousStash<V> {
 
 impl<V: OramBlock> ObliviousStash<V> {
     pub fn new(path_size: StashSize, overflow_size: StashSize) -> Result<Self, OramError> {
-        let num_stash_blocks: usize = (path_size + overflow_size).try_into()?;
+        // Make the stash larger - path_size * path_size - so that it can fit the paths of a batch
+        // of size path_size (this means that on a single Path ORAM access we can update the position map
+        // in a single top-level batch)
+        // TODO think if other stash and batch sizes make more sense
+        let num_stash_blocks: usize = (path_size * path_size + overflow_size).try_into()?;
 
         Ok(Self {
             entries: vec![StashEntry::<V>::dummy(); num_stash_blocks],
             path_size,
+            prefix_last_written_to_physical_memory: 0,
         })
     }
 
@@ -256,7 +262,7 @@ impl<V: OramBlock> ObliviousStash<V> {
     #[cfg(test)]
     pub fn occupancy(&self) -> StashSize {
         let mut result = 0;
-        for i in self.path_size.try_into().unwrap()..(self.entries.len()) {
+        for i in self.prefix_last_written_to_physical_memory..self.entries.len() {
             if !self.entries[i].block.is_dummy() {
                 result += 1;
             }
@@ -283,6 +289,72 @@ impl<V: OramBlock> ObliviousStash<V> {
             }
         }
 
+        let stash_index = self.path_size.try_into()?;
+        if stash_index < self.prefix_last_written_to_physical_memory {
+            self.entries[stash_index..self.prefix_last_written_to_physical_memory]
+                .fill(StashEntry::dummy());
+        }
+        self.prefix_last_written_to_physical_memory = stash_index;
+
+        Ok(())
+    }
+
+    /// `positions` must be sorted!
+    pub fn read_from_paths<const Z: crate::BucketSize>(
+        &mut self,
+        physical_memory: &mut [Bucket<V, Z>],
+        positions: &[TreeIndex],
+    ) -> Result<(), OramError> {
+        debug_assert!(positions.is_sorted());
+
+        // This is hacky, but deepest_common_ancestor called with an argument equal to 0 will return 0,
+        // so we will correctly load from the root in the fist iteration.
+        let mut prev_position = 0;
+        let mut stash_index = 0;
+        for position in positions {
+            let deepest_common_ancestor = position.depest_common_ancestor(&prev_position);
+            self.read_below_ancestor(
+                physical_memory,
+                *position,
+                deepest_common_ancestor,
+                &mut stash_index,
+            )?;
+            prev_position = *position;
+        }
+
+        if stash_index < self.prefix_last_written_to_physical_memory {
+            self.entries[stash_index..self.prefix_last_written_to_physical_memory]
+                .fill(StashEntry::dummy());
+        }
+        self.prefix_last_written_to_physical_memory = stash_index;
+
+        Ok(())
+    }
+
+    pub fn read_below_ancestor<const Z: crate::BucketSize>(
+        &mut self,
+        physical_memory: &mut [Bucket<V, Z>],
+        mut descendant: TreeIndex,
+        ancestor: TreeIndex,
+        stash_index: &mut usize,
+    ) -> Result<(), OramError> {
+        while descendant != ancestor {
+            let bucket = physical_memory[usize::try_from(descendant)?];
+            for block in bucket.blocks {
+                self.entries[*stash_index] = StashEntry {
+                    block,
+                    exact_bucket: BlockMetadata::NOT_IN_TREE,
+                    exact_offset: StashEntry::<V>::DUMMY_OFFSET,
+                };
+                *stash_index += 1;
+            }
+            descendant >>= 1;
+        }
+
         Ok(())
     }
 }
+
+// TODO the stash has to remember which part of it was written to physical memory on last access and if the next access
+// is smaller, it has to replace the previously written blocks that don't get overwritten by the new path with dummy ones
+// (otherwise we could write the same block twice to physical memory)

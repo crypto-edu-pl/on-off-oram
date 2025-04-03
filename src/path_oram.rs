@@ -143,7 +143,7 @@ impl<V: OramBlock> Oram for DefaultOram<V> {
 
     fn batch_access<R: RngCore + CryptoRng, F: Fn(&Self::V) -> Self::V>(
         &mut self,
-        callbacks: &Vec<(Address, F)>,
+        callbacks: &[(Address, F)],
         rng: &mut R,
     ) -> Result<Vec<Self::V>, OramError> {
         match &mut self.0 {
@@ -265,11 +265,7 @@ impl<V: OramBlock, const Z: BucketSize, const AB: BlockSize> PathOram<V, Z, AB> 
         let height: u64 = (block_capacity.ilog2() - 1).into();
 
         let path_size = u64::try_from(Z)? * (height + 1);
-        // Make the stash larger - path_size * path_size - so that it can fit the paths of a batch
-        // of size path_size (this means that on a single Path ORAM access we can update the position map
-        // in a single top-level batch)
-        // TODO think if other stash and batch sizes make more sense
-        let stash = ObliviousStash::new(path_size * path_size, overflow_size)?;
+        let stash = ObliviousStash::new(path_size, overflow_size)?;
 
         // physical_memory holds `block_capacity` buckets, each storing up to Z blocks.
         // The number of leaves is `block_capacity` / 2, which the original Path ORAM paper's experiments
@@ -509,7 +505,7 @@ impl<V: OramBlock, const Z: BucketSize, const AB: BlockSize> Oram for PathOram<V
 
     fn batch_access<R: RngCore + CryptoRng, F: Fn(&Self::V) -> Self::V>(
         &mut self,
-        callbacks: &Vec<(Address, F)>,
+        callbacks: &[(Address, F)],
         rng: &mut R,
     ) -> Result<Vec<Self::V>, OramError> {
         match self.mode() {
@@ -519,7 +515,7 @@ impl<V: OramBlock, const Z: BucketSize, const AB: BlockSize> Oram for PathOram<V
                     self.height,
                     rng,
                 )?;
-                let assigned_leaves = self
+                let mut assigned_leaves = self
                     .position_map
                     .batch_read(
                         &callbacks.iter().map(|(address, _)| *address).collect(),
@@ -528,6 +524,7 @@ impl<V: OramBlock, const Z: BucketSize, const AB: BlockSize> Oram for PathOram<V
                     .into_iter()
                     .map(|metadata| metadata.assigned_leaf)
                     .collect::<Vec<_>>();
+                assigned_leaves.sort();
 
                 for assigned_leaf in &assigned_leaves {
                     assert!(assigned_leaf.is_leaf(self.height));

@@ -89,7 +89,7 @@ impl<V: OramBlock> Oram for LinearTimeOram<V> {
         &mut self,
         callbacks: &Vec<(Address, F)>,
         rng: &mut R,
-    ) -> Result<Self::V, OramError> {
+    ) -> Result<Vec<Self::V>, OramError> {
         todo!()
     }
 

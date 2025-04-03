@@ -207,7 +207,20 @@ where
         &mut self,
         callbacks: &Vec<(Address, F)>,
         rng: &mut R,
-    ) -> Result<Self::V, OramError>;
+    ) -> Result<Vec<Self::V>, OramError>;
+
+    fn batch_read<R: RngCore + CryptoRng>(
+        &mut self,
+        indices: &Vec<Address>,
+        rng: &mut R,
+    ) -> Result<Vec<Self::V>, OramError> {
+        let callback = |x: &Self::V| *x;
+        let callbacks = indices
+            .iter()
+            .map(|index| (*index, callback))
+            .collect::<Vec<_>>();
+        self.batch_access(&callbacks, rng)
+    }
 
     /// Turn ORAM on - subsequent accesses will be oblivious.
     ///

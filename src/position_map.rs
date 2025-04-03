@@ -13,7 +13,21 @@ use crate::{linear_time_oram::LinearTimeOram, Address, BlockSize, BucketSize, Or
 use crate::{OramError, RecursionCutoff};
 use crate::{OramMode, StashSize};
 use rand::{CryptoRng, RngCore};
-use subtle::{ConditionallySelectable, ConstantTimeEq};
+use subtle::{Choice, ConditionallySelectable, ConstantTimeEq};
+
+#[derive(Copy, Clone)]
+pub struct PositionMapUpdate {
+    pub address: Address,
+    pub metadata: BlockMetadata,
+}
+
+impl ConditionallySelectable for PositionMapUpdate {
+    fn conditional_select(a: &Self, b: &Self, choice: Choice) -> Self {
+        let address = Address::conditional_select(&a.address, &b.address, choice);
+        let metadata = BlockMetadata::conditional_select(&a.metadata, &b.metadata, choice);
+        PositionMapUpdate { address, metadata }
+    }
+}
 
 /// A recursive Path ORAM position map data structure. `AB` is the number of addresses stored in each ORAM block.
 #[derive(Debug)]
@@ -60,22 +74,23 @@ impl<const AB: BlockSize, const Z: BucketSize> PositionMap<AB, Z> {
 
     pub fn batch_update<R: RngCore + CryptoRng>(
         &mut self,
-        updates: &[(Address, BlockMetadata)],
+        updates: &[PositionMapUpdate],
         rng: &mut R,
     ) -> Result<(), OramError> {
         match self.mode() {
             OramMode::On => {
                 let callbacks = updates
                     .iter()
-                    .map(|(address, metadata)| {
-                        let address_of_block = PositionMap::<AB, Z>::address_of_block(*address);
+                    .map(|(update)| {
+                        let address_of_block =
+                            PositionMap::<AB, Z>::address_of_block(update.address);
                         let address_within_block =
-                            PositionMap::<AB, Z>::address_within_block(*address)?;
+                            PositionMap::<AB, Z>::address_within_block(update.address)?;
                         let block_callback = move |block: &PositionBlock<AB>| {
                             let mut result = *block;
                             for i in 0..block.data.len() {
                                 let index_matches = i.ct_eq(&address_within_block);
-                                result.data[i].conditional_assign(&metadata, index_matches);
+                                result.data[i].conditional_assign(&update.metadata, index_matches);
                             }
                             result
                         };
@@ -230,7 +245,7 @@ impl<const AB: BlockSize, const Z: BucketSize> Oram for PositionMap<AB, Z> {
         &mut self,
         callbacks: &Vec<(Address, F)>,
         rng: &mut R,
-    ) -> Result<Self::V, OramError> {
+    ) -> Result<Vec<Self::V>, OramError> {
         todo!()
     }
 

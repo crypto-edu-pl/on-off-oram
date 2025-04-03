@@ -267,9 +267,9 @@ impl<V: OramBlock, const Z: BucketSize, const AB: BlockSize> Oram for StashSizeM
 
     fn batch_access<R: RngCore + CryptoRng, F: Fn(&Self::V) -> Self::V>(
         &mut self,
-        _callbacks: &Vec<(Address, F)>,
-        _rng: &mut R,
-    ) -> Result<Self::V, OramError> {
+        callbacks: &Vec<(Address, F)>,
+        rng: &mut R,
+    ) -> Result<Vec<Self::V>, OramError> {
         unimplemented!();
     }
 

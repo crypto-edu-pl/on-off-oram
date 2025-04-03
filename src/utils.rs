@@ -11,7 +11,7 @@ use rand::{CryptoRng, Rng, RngCore};
 
 use subtle::{Choice, ConditionallySelectable, ConstantTimeGreater, ConstantTimeLess};
 
-use std::num::TryFromIntError;
+use std::{iter, num::TryFromIntError};
 
 pub(crate) type TreeIndex = u64;
 pub(crate) type TreeHeight = u64;
@@ -25,6 +25,11 @@ where
         tree_height: TreeHeight,
         rng: &mut R,
     ) -> Result<Self, TryFromIntError>;
+    fn random_leaves<R: RngCore + CryptoRng>(
+        count: u32,
+        tree_height: TreeHeight,
+        rng: &mut R,
+    ) -> Result<Vec<Self>, TryFromIntError>;
     fn ct_depth(&self) -> TreeHeight;
     fn is_leaf(&self, height: TreeHeight) -> bool;
 }
@@ -49,6 +54,22 @@ impl CompleteBinaryTreeIndex for TreeIndex {
         let result = 2u64.pow(tree_height) + rng.gen_range(0..2u64.pow(tree_height));
         // The value we've just generated is at least the first summand, which is at least 1.
         assert_ne!(result, 0);
+        Ok(result)
+    }
+
+    fn random_leaves<R: RngCore + CryptoRng>(
+        count: u32,
+        tree_height: TreeHeight,
+        rng: &mut R,
+    ) -> Result<Vec<Self>, TryFromIntError> {
+        let tree_height: u32 = tree_height.try_into()?;
+        let result = iter::repeat_with(|| {
+            let leaf = 2u64.pow(tree_height) + rng.gen_range(0..2u64.pow(tree_height));
+            assert_ne!(leaf, 0);
+            leaf
+        })
+        .take(count.try_into()?)
+        .collect::<Vec<_>>();
         Ok(result)
     }
 

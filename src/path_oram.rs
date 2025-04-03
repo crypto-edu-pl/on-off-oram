@@ -150,6 +150,17 @@ impl<V: OramBlock> Oram for DefaultOram<V> {
         }
     }
 
+    fn batch_access<R: RngCore + CryptoRng, F: Fn(&Self::V) -> Self::V>(
+        &mut self,
+        callbacks: &Vec<(Address, F)>,
+        rng: &mut R,
+    ) -> Result<Self::V, OramError> {
+        match &mut self.0 {
+            DefaultOramBackend::Path(p) => p.batch_access(callbacks, rng),
+            DefaultOramBackend::Linear(l) => l.batch_access(callbacks, rng),
+        }
+    }
+
     fn turn_on<R: RngCore + CryptoRng>(&mut self, rng: &mut R) -> Result<(), OramError> {
         match &mut self.0 {
             DefaultOramBackend::Path(p) => p.turn_on(rng),
@@ -485,6 +496,39 @@ impl<V: OramBlock, const Z: BucketSize, const AB: BlockSize> Oram for PathOram<V
 
                 Ok(result)
             }
+        }
+    }
+
+    fn batch_access<R: RngCore + CryptoRng, F: Fn(&Self::V) -> Self::V>(
+        &mut self,
+        callbacks: &Vec<(Address, F)>,
+        rng: &mut R,
+    ) -> Result<Self::V, OramError> {
+        match self.mode() {
+            OramMode::On => {
+                let new_positions = CompleteBinaryTreeIndex::random_leaves(
+                    callbacks.len().try_into()?,
+                    self.height,
+                    rng,
+                )?;
+                let assigned_leaves = self.position_map.batch_read(
+                    &callbacks.iter().map(|(address, _)| *address).collect(),
+                    rng,
+                )?.into_iter().map(|metadata| metadata.assigned_leaf).collect::<Vec<_>>();
+
+                for assigned_leaf in &assigned_leaves {
+                    assert!(assigned_leaf.is_leaf(self.height));
+                }
+                
+                self.stash.read_from_paths(&mut self.physical_memory, &assigned_leaves)?;
+
+                let result = self.stash.batch_access(callbacks, new_positions)?;
+
+                self.stash.write_to_paths(&mut self.physical_memory, assigned_leaves)?;
+
+                todo!("Do multiple batch updates of the position map; limit the batch size by e.g. 2 * Z * log N (this is the batch size of the position map update in a non-batched access)");
+            }
+            OramMode::Off => unimplemented!("We do not generate batch accesses in off mode."),
         }
     }
 

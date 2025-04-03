@@ -203,6 +203,12 @@ where
         self.access(index, callback, rng)
     }
 
+    fn batch_access<R: RngCore + CryptoRng, F: Fn(&Self::V) -> Self::V>(
+        &mut self,
+        callbacks: &Vec<(Address, F)>,
+        rng: &mut R,
+    ) -> Result<Self::V, OramError>;
+
     /// Turn ORAM on - subsequent accesses will be oblivious.
     ///
     /// Time can depend on current mode and if current mode is off, on the accesses made in off mode

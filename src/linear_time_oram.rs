@@ -85,6 +85,14 @@ impl<V: OramBlock> Oram for LinearTimeOram<V> {
         }
     }
 
+    fn batch_access<R: RngCore + CryptoRng, F: Fn(&Self::V) -> Self::V>(
+        &mut self,
+        callbacks: &Vec<(Address, F)>,
+        rng: &mut R,
+    ) -> Result<Self::V, OramError> {
+        todo!()
+    }
+
     fn block_capacity(&self) -> Result<Address, OramError> {
         Ok(u64::try_from(self.physical_memory.len())?)
     }

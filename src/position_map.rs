@@ -57,6 +57,46 @@ impl<const AB: BlockSize, const Z: BucketSize> PositionMap<AB, Z> {
 
         Ok(())
     }
+
+    pub fn batch_update<R: RngCore + CryptoRng>(
+        &mut self,
+        updates: &[(Address, BlockMetadata)],
+        rng: &mut R,
+    ) -> Result<(), OramError> {
+        match self.mode() {
+            OramMode::On => {
+                let callbacks = updates
+                    .iter()
+                    .map(|(address, metadata)| {
+                        let address_of_block = PositionMap::<AB, Z>::address_of_block(*address);
+                        let address_within_block =
+                            PositionMap::<AB, Z>::address_within_block(*address)?;
+                        let block_callback = move |block: &PositionBlock<AB>| {
+                            let mut result = *block;
+                            for i in 0..block.data.len() {
+                                let index_matches = i.ct_eq(&address_within_block);
+                                result.data[i].conditional_assign(&metadata, index_matches);
+                            }
+                            result
+                        };
+                        Ok((address_of_block, block_callback))
+                    })
+                    .collect::<Result<Vec<_>, OramError>>()?;
+                match self {
+                    PositionMap::Base(linear_oram) => {
+                        linear_oram.batch_access(&callbacks, rng)?;
+                    }
+
+                    PositionMap::Recursive(block_oram) => {
+                        block_oram.batch_access(&callbacks, rng)?;
+                    }
+                }
+            }
+            OramMode::Off => unimplemented!("We do not generate batch accesses in off mode."),
+        }
+
+        Ok(())
+    }
 }
 
 impl<const AB: BlockSize, const Z: BucketSize> PositionMap<AB, Z> {
@@ -184,6 +224,14 @@ impl<const AB: BlockSize, const Z: BucketSize> Oram for PositionMap<AB, Z> {
                 Ok(block.data[address_within_block])
             }
         }
+    }
+
+    fn batch_access<R: RngCore + CryptoRng, F: Fn(&Self::V) -> Self::V>(
+        &mut self,
+        callbacks: &Vec<(Address, F)>,
+        rng: &mut R,
+    ) -> Result<Self::V, OramError> {
+        todo!()
     }
 
     fn turn_on<R: RngCore + CryptoRng>(&mut self, rng: &mut R) -> Result<(), OramError> {

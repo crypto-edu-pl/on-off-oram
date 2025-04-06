@@ -7,10 +7,10 @@
 
 //! A trait representing a Path ORAM stash.
 
-use std::vec;
+use std::{cmp, collections::BTreeMap, vec};
 
 use crate::{
-    bucket::{BlockMetadata, Bucket, PathOramBlock},
+    bucket::{self, BlockMetadata, Bucket, PathOramBlock},
     utils::{bitonic_sort_by_keys, CompleteBinaryTreeIndex, TreeIndex},
     Address, BucketSize, OramBlock, OramError, StashSize,
 };
@@ -214,6 +214,142 @@ impl<V: OramBlock> ObliviousStash<V> {
         Ok(())
     }
 
+    pub fn write_to_paths<const Z: BucketSize>(
+        &mut self,
+        physical_memory: &mut [Bucket<V, Z>],
+        positions: &[TreeIndex],
+    ) -> Result<(), OramError> {
+        let height = positions[0].ct_depth();
+        let mut bucket_assignments = vec![TreeIndex::MAX; self.len()];
+
+        // Fun fact: the maximal number of buckets in a subtree comprised of k paths is k * (height + 1) - (kth sorting number)
+        // (the fact that it is a sorting number found using OEIS). This is because the second path has at least one node in common
+        // with the first one, then the next two have at least two in common with them, then the next four at least three and so on.
+        // (This is easiest to see when looking at the path as a binary representation of the leaf's index.)
+        //
+        // The positions (paths) are public knowledge, so we don't have to do computations that rely only on them obliviously.
+        let mut bucket_counts = prepare_bucket_counts(positions);
+
+        // Assign all non-dummy blocks in the stash to either a path or the overflow.
+        for (i, entry) in self.entries.iter().enumerate() {
+            // If `block` is a dummy, the rest of this loop iteration will be a no-op, and the values don't matter.
+            let block_is_dummy = entry.block.ct_is_dummy();
+
+            // Set up valid but meaningless input to the computation in case `block` is a dummy.
+            let an_arbitrary_leaf: TreeIndex = 1 << height;
+            let block_position = TreeIndex::conditional_select(
+                &entry.block.position,
+                &an_arbitrary_leaf,
+                block_is_dummy,
+            );
+
+            // Assign the block to a bucket or to the overflow.
+            let mut assigned = Choice::from(0);
+            // Obliviously scan through the buckets from leaf to root,
+            // assigning the block to the first empty bucket satisfying the invariant.
+            for (bucket, count) in bucket_counts.iter_mut() {
+                let bucket_full: Choice = count.ct_eq(&(u64::try_from(Z)?));
+
+                let level_satisfies_invariant = bucket.ct_is_ancestor_of_other(&block_position);
+
+                let should_assign =
+                    level_satisfies_invariant & (!bucket_full) & (!block_is_dummy) & (!assigned);
+                assigned |= should_assign;
+
+                let level_count_incremented = *count + 1;
+                count.conditional_assign(&level_count_incremented, should_assign);
+                bucket_assignments[i].conditional_assign(&bucket, should_assign);
+            }
+            // If the block was not able to be assigned to any bucket, assign it to the overflow.
+            bucket_assignments[i]
+                .conditional_assign(&(TreeIndex::MAX - 1), (!assigned) & (!block_is_dummy));
+        }
+
+        // Assign dummy blocks to the remaining non-full buckets until all buckets are full.
+        let mut exists_unfilled_levels: Choice = 1.into();
+        let mut first_unassigned_block_index: usize = 0;
+        // Unless the stash overflows, this loop will execute exactly once, and the inner `if` will not execute.
+        // If the stash overflows, this loop will execute twice and the inner `if` will execute.
+        // This difference in control flow will leak the fact that the stash has overflowed.
+        // This is a violation of obliviousness, but the alternative is simply to fail.
+        // If the stash is set large enough when the ORAM is initialized,
+        // stash overflow will occur only with negligible probability.
+        while exists_unfilled_levels.into() {
+            // Make a pass over the stash, assigning dummy blocks to unfilled levels in the path.
+            for (i, entry) in self
+                .entries
+                .iter()
+                .enumerate()
+                .skip(first_unassigned_block_index)
+            {
+                // Skip the last `self.path_size` blocks. They are reserved for handling (batch) writes to uninitialized addresses.
+                if i >= self.entries.len() - usize::try_from(self.path_size)? {
+                    break;
+                }
+
+                let block_free = entry.block.ct_is_dummy();
+
+                let mut assigned: Choice = 0.into();
+                for (bucket, count) in bucket_counts.iter_mut() {
+                    let full = count.ct_eq(&(u64::try_from(Z)?));
+                    let no_op = assigned | full | !block_free;
+
+                    bucket_assignments[i].conditional_assign(&bucket, !no_op);
+                    count.conditional_assign(&(*count + 1), !no_op);
+                    assigned |= !no_op;
+                }
+            }
+
+            // Check that all levels have been filled.
+            exists_unfilled_levels = 0.into();
+            for (_, count) in bucket_counts.iter() {
+                let full = count.ct_eq(&(u64::try_from(Z)?));
+                exists_unfilled_levels |= !full;
+            }
+
+            // If not, there must not have been enough dummy blocks remaining in the stash.
+            // That is, the stash has overflowed.
+            // So, extend the stash with STASH_GROWTH_INCREMENT more dummy blocks,
+            // and repeat the process of trying to fill all unfilled levels with dummy blocks.
+            if exists_unfilled_levels.into() {
+                first_unassigned_block_index =
+                    self.entries.len() - usize::try_from(self.path_size)?;
+
+                self.entries.resize(
+                    self.entries.len() + STASH_GROWTH_INCREMENT,
+                    StashEntry::<V>::dummy(),
+                );
+                bucket_assignments.resize(
+                    bucket_assignments.len() + STASH_GROWTH_INCREMENT,
+                    TreeIndex::MAX,
+                );
+
+                log::warn!(
+                    "Stash overflow occurred. Stash resized to {} blocks.",
+                    self.entries.len()
+                );
+            }
+        }
+
+        bitonic_sort_by_keys(&mut self.entries, &mut bucket_assignments);
+
+        // Write the first Z * bucket_counts.len() blocks into slots in the tree
+        for i in 0..bucket_counts.len() {
+            for slot_number in 0..Z {
+                let stash_index = i * Z + slot_number;
+                let bucket_index = usize::try_from(bucket_assignments[stash_index])?;
+                let bucket_to_write = &mut physical_memory[bucket_index];
+
+                bucket_to_write.blocks[slot_number] = self.entries[stash_index].block;
+
+                self.entries[stash_index].exact_bucket = bucket_index.try_into()?;
+                self.entries[stash_index].exact_offset = slot_number.try_into()?;
+            }
+        }
+
+        Ok(())
+    }
+
     pub fn access<F: Fn(&V) -> V>(
         &mut self,
         address: Address,
@@ -348,20 +484,21 @@ impl<V: OramBlock> ObliviousStash<V> {
         Ok(())
     }
 
-    /// `positions` must be sorted!
+    /// `positions` must be sorted in descending order! (for this function the order could also be ascending, but for
+    /// write_to_paths it must be descending)
     pub fn read_from_paths<const Z: crate::BucketSize>(
         &mut self,
         physical_memory: &mut [Bucket<V, Z>],
         positions: &[TreeIndex],
     ) -> Result<(), OramError> {
-        debug_assert!(positions.is_sorted());
+        debug_assert!(positions.is_sorted_by_key(|x| cmp::Reverse(x)));
 
         // This is hacky, but deepest_common_ancestor called with an argument equal to 0 will return 0,
         // so we will correctly load from the root in the fist iteration.
         let mut prev_position = 0;
         let mut stash_index = 0;
         for position in positions {
-            let deepest_common_ancestor = position.depest_common_ancestor(&prev_position);
+            let deepest_common_ancestor = position.depest_common_ancestor_of_leaves(&prev_position);
             self.read_below_ancestor(
                 physical_memory,
                 *position,
@@ -402,4 +539,20 @@ impl<V: OramBlock> ObliviousStash<V> {
 
         Ok(())
     }
+}
+
+fn prepare_bucket_counts(positions: &[TreeIndex]) -> Vec<(TreeIndex, u64)> {
+    let mut bucket_counts = positions.iter().map(|&pos| (pos, 0)).collect::<Vec<_>>();
+
+    // This works because the positions are sorted
+    let mut i = 0;
+    while bucket_counts.last().unwrap().0 != 1 {
+        let parent = bucket_counts[i].0 >> 1;
+        if parent != bucket_counts.last().unwrap().0 {
+            bucket_counts.push((parent, 0));
+        }
+        i += 1;
+    }
+
+    bucket_counts
 }

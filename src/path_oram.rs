@@ -8,10 +8,9 @@
 //! An implementation of Path ORAM.
 
 use std::{
-    cmp::min,
+    cmp::{self, min},
     collections::{hash_map, HashMap},
     mem,
-    ops::RangeBounds,
     slice::SliceIndex,
 };
 
@@ -527,7 +526,7 @@ impl<V: OramBlock, const Z: BucketSize, const AB: BlockSize> Oram for PathOram<V
                     .into_iter()
                     .map(|metadata| metadata.assigned_leaf)
                     .collect::<Vec<_>>();
-                assigned_leaves.sort();
+                assigned_leaves.sort_by_key(|x| cmp::Reverse(*x));
 
                 for assigned_leaf in &assigned_leaves {
                     assert!(assigned_leaf.is_leaf(self.height));
@@ -539,14 +538,14 @@ impl<V: OramBlock, const Z: BucketSize, const AB: BlockSize> Oram for PathOram<V
                 let result = self.stash.batch_access(&new_positions, callbacks)?;
 
                 self.stash
-                    .write_to_paths(&mut self.physical_memory, assigned_leaves)?;
+                    .write_to_paths(&mut self.physical_memory, &assigned_leaves)?;
 
                 // Update the position map. Limit the batch size so that it fits in the position map's stash
                 for batch_begin in
                     (0..self.stash.entries.len()).step_by(self.stash.path_size.try_into()?)
                 {
                     let batch_end = min(
-                        batch_begin + self.stash.path_size.try_into()?,
+                        batch_begin + usize::try_from(self.stash.path_size)?,
                         self.stash.entries.len(),
                     );
                     self.batch_update_position_map(batch_begin..batch_end, rng)?;

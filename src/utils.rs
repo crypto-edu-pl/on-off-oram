@@ -9,7 +9,9 @@
 
 use rand::{CryptoRng, Rng, RngCore};
 
-use subtle::{Choice, ConditionallySelectable, ConstantTimeGreater, ConstantTimeLess};
+use subtle::{
+    Choice, ConditionallySelectable, ConstantTimeEq, ConstantTimeGreater, ConstantTimeLess,
+};
 
 use std::{iter, num::TryFromIntError};
 
@@ -32,7 +34,8 @@ where
     ) -> Result<Vec<Self>, TryFromIntError>;
     fn ct_depth(&self) -> TreeHeight;
     fn is_leaf(&self, height: TreeHeight) -> bool;
-    fn depest_common_ancestor(&self, other: &Self) -> Self;
+    fn depest_common_ancestor_of_leaves(&self, other: &Self) -> Self;
+    fn ct_is_ancestor_of_other(&self, other: &Self) -> Choice;
 }
 
 impl CompleteBinaryTreeIndex for TreeIndex {
@@ -90,7 +93,7 @@ impl CompleteBinaryTreeIndex for TreeIndex {
         self.ct_depth() == height
     }
 
-    fn depest_common_ancestor(&self, other: &Self) -> Self {
+    fn depest_common_ancestor_of_leaves(&self, other: &Self) -> Self {
         // The subsequent bits of the leaf index correspond to choosing the left/right child while descending
         // along the path from the root. The first bit that is different corresponds to the first time a different
         // child is chosen and the paths diverge
@@ -98,6 +101,21 @@ impl CompleteBinaryTreeIndex for TreeIndex {
         let length_of_max_prefix_of_equal_bits = nonequal_bits_mask.leading_zeros();
         let length_of_diverged_paths = Self::BITS - length_of_max_prefix_of_equal_bits;
         self >> length_of_diverged_paths
+    }
+
+    fn ct_is_ancestor_of_other(&self, other: &Self) -> Choice {
+        // Shift self and other to a representation that begins at the most significant bit, so that
+        // the path from the root can be compared.
+        let self_path = self << self.leading_zeros();
+        let other_path = other << other.leading_zeros();
+
+        let self_path_length = Self::BITS - self.leading_zeros();
+        let self_bitmask = (1 << self_path_length) - 1;
+        let self_path_bitmask = self_bitmask << self.leading_zeros();
+
+        let path_prefix_matches = ((self_path ^ other_path) & self_path_bitmask).ct_eq(&0);
+
+        !self.ct_gt(other) & path_prefix_matches
     }
 }
 

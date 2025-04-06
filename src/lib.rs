@@ -88,6 +88,7 @@
 //! See [`PathOram`] for an explanation of these parameters and their possible settings.
 
 #![warn(clippy::cargo, clippy::doc_markdown, missing_docs, rustdoc::all)]
+#![allow(clippy::doc_overindented_list_items)]
 
 use std::num::TryFromIntError;
 
@@ -203,12 +204,14 @@ where
         self.access(index, callback, rng)
     }
 
+    /// Perform a batch of oblivious ORAM accesses.
     fn batch_access<R: RngCore + CryptoRng, F: Fn(&Self::V) -> Self::V>(
         &mut self,
         callbacks: &[(Address, F)],
         rng: &mut R,
     ) -> Result<Vec<Self::V>, OramError>;
 
+    /// Perform a batch of oblivious ORAM reads.
     fn batch_read<R: RngCore + CryptoRng>(
         &mut self,
         indices: &[Address],

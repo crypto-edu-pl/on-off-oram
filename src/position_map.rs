@@ -81,7 +81,7 @@ impl<const AB: BlockSize, const Z: BucketSize> PositionMap<AB, Z> {
             OramMode::On => {
                 let callbacks = updates
                     .iter()
-                    .map(|(update)| {
+                    .map(|update| {
                         let address_of_block =
                             PositionMap::<AB, Z>::address_of_block(update.address);
                         let address_within_block =

@@ -90,7 +90,11 @@ impl<V: OramBlock> Oram for LinearTimeOram<V> {
         callbacks: &[(Address, F)],
         rng: &mut R,
     ) -> Result<Vec<Self::V>, OramError> {
-        todo!()
+        let mut results = Vec::with_capacity(callbacks.len());
+        for (index, callback) in callbacks.iter() {
+            results.push(self.access(*index, callback, rng)?);
+        }
+        Ok(results)
     }
 
     fn block_capacity(&self) -> Result<Address, OramError> {

@@ -7,10 +7,10 @@
 
 //! A trait representing a Path ORAM stash.
 
-use std::{cmp, collections::BTreeMap, vec};
+use std::{cmp, vec};
 
 use crate::{
-    bucket::{self, BlockMetadata, Bucket, PathOramBlock},
+    bucket::{BlockMetadata, Bucket, PathOramBlock},
     utils::{bitonic_sort_by_keys, CompleteBinaryTreeIndex, TreeIndex},
     Address, BucketSize, OramBlock, OramError, StashSize,
 };
@@ -258,7 +258,7 @@ impl<V: OramBlock> ObliviousStash<V> {
 
                 let level_count_incremented = *count + 1;
                 count.conditional_assign(&level_count_incremented, should_assign);
-                bucket_assignments[i].conditional_assign(&bucket, should_assign);
+                bucket_assignments[i].conditional_assign(bucket, should_assign);
             }
             // If the block was not able to be assigned to any bucket, assign it to the overflow.
             bucket_assignments[i]
@@ -294,7 +294,7 @@ impl<V: OramBlock> ObliviousStash<V> {
                     let full = count.ct_eq(&(u64::try_from(Z)?));
                     let no_op = assigned | full | !block_free;
 
-                    bucket_assignments[i].conditional_assign(&bucket, !no_op);
+                    bucket_assignments[i].conditional_assign(bucket, !no_op);
                     count.conditional_assign(&(*count + 1), !no_op);
                     assigned |= !no_op;
                 }
@@ -485,13 +485,13 @@ impl<V: OramBlock> ObliviousStash<V> {
     }
 
     /// `positions` must be sorted in descending order! (for this function the order could also be ascending, but for
-    /// write_to_paths it must be descending)
+    /// `write_to_paths` it must be descending)
     pub fn read_from_paths<const Z: crate::BucketSize>(
         &mut self,
         physical_memory: &mut [Bucket<V, Z>],
         positions: &[TreeIndex],
     ) -> Result<(), OramError> {
-        debug_assert!(positions.is_sorted_by_key(|x| cmp::Reverse(x)));
+        debug_assert!(positions.is_sorted_by_key(cmp::Reverse));
 
         // This is hacky, but deepest_common_ancestor called with an argument equal to 0 will return 0,
         // so we will correctly load from the root in the fist iteration.

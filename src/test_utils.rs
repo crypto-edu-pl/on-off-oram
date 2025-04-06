@@ -270,7 +270,10 @@ impl<V: OramBlock, const Z: BucketSize, const AB: BlockSize> Oram for StashSizeM
         callbacks: &[(Address, F)],
         rng: &mut R,
     ) -> Result<Vec<Self::V>, OramError> {
-        unimplemented!();
+        let result = self.oram.batch_access(callbacks, rng);
+        let stash_size = self.oram.stash_occupancy();
+        assert!(stash_size < 10);
+        result
     }
 
     fn turn_on<R: RngCore + CryptoRng>(&mut self, rng: &mut R) -> Result<(), OramError> {

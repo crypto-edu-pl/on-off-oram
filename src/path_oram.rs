@@ -518,7 +518,10 @@ impl<V: OramBlock, const Z: BucketSize, const AB: BlockSize> Oram for PathOram<V
                 let mut assigned_leaves = self
                     .position_map
                     .batch_read(
-                        &callbacks.iter().map(|(address, _)| *address).collect(),
+                        &callbacks
+                            .iter()
+                            .map(|(address, _)| *address)
+                            .collect::<Vec<_>>(),
                         rng,
                     )?
                     .into_iter()
@@ -533,7 +536,7 @@ impl<V: OramBlock, const Z: BucketSize, const AB: BlockSize> Oram for PathOram<V
                 self.stash
                     .read_from_paths(&mut self.physical_memory, &assigned_leaves)?;
 
-                let result = self.stash.batch_access(callbacks, new_positions)?;
+                let result = self.stash.batch_access(&new_positions, callbacks)?;
 
                 self.stash
                     .write_to_paths(&mut self.physical_memory, assigned_leaves)?;

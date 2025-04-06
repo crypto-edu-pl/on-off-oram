@@ -7,6 +7,8 @@
 
 //! A trait representing a Path ORAM stash.
 
+use std::vec;
+
 use crate::{
     bucket::{BlockMetadata, Bucket, PathOramBlock},
     utils::{bitonic_sort_by_keys, CompleteBinaryTreeIndex, TreeIndex},
@@ -144,8 +146,8 @@ impl<V: OramBlock> ObliviousStash<V> {
                 .enumerate()
                 .skip(first_unassigned_block_index)
             {
-                // Skip the last block. It is reserved for handling writes to uninitialized addresses.
-                if i == self.entries.len() - 1 {
+                // Skip the last `self.path_size` blocks. They are reserved for handling (batch) writes to uninitialized addresses.
+                if i >= self.entries.len() - usize::try_from(self.path_size)? {
                     break;
                 }
 
@@ -174,7 +176,8 @@ impl<V: OramBlock> ObliviousStash<V> {
             // So, extend the stash with STASH_GROWTH_INCREMENT more dummy blocks,
             // and repeat the process of trying to fill all unfilled levels with dummy blocks.
             if exists_unfilled_levels.into() {
-                first_unassigned_block_index = self.entries.len() - 1;
+                first_unassigned_block_index =
+                    self.entries.len() - usize::try_from(self.path_size)?;
 
                 self.entries.resize(
                     self.entries.len() + STASH_GROWTH_INCREMENT,
@@ -217,6 +220,68 @@ impl<V: OramBlock> ObliviousStash<V> {
         new_position: TreeIndex,
         value_callback: F,
     ) -> Result<V, OramError> {
+        let (result, found) = self.try_update(address, new_position, &value_callback)?;
+
+        // If a block with address `address` is not found,
+        // initialize one by writing to the last block in the stash,
+        // which will always be a dummy block.
+        let last_block_index = self.entries.len() - 1;
+        let last_entry = &mut self.entries[last_block_index];
+        assert!(bool::from(last_entry.block.ct_is_dummy()));
+        last_entry.block.conditional_assign(
+            &PathOramBlock {
+                value: value_callback(&result),
+                address,
+                position: new_position,
+            },
+            !found,
+        );
+
+        // Return the value of the found block (or the default value, if no block was found)
+        Ok(result)
+    }
+
+    pub fn batch_access<F: Fn(&V) -> V>(
+        &mut self,
+        new_positions: &[TreeIndex],
+        value_callbacks: &[(Address, F)],
+    ) -> Result<Vec<V>, OramError> {
+        assert_eq!(new_positions.len(), value_callbacks.len());
+
+        let mut results = Vec::with_capacity(value_callbacks.len());
+
+        for (i, (new_position, (address, value_callback))) in
+            new_positions.iter().zip(value_callbacks).enumerate()
+        {
+            let (result, found) = self.try_update(*address, *new_position, &value_callback)?;
+
+            // If a block with address `address` is not found,
+            // initialize one by writing to a reserved block in the stash,
+            // which will always be a dummy block
+            let reserved_block_index = self.entries.len() - 1 - i;
+            let reserved_entry = &mut self.entries[reserved_block_index];
+            assert!(bool::from(reserved_entry.block.ct_is_dummy()));
+            reserved_entry.block.conditional_assign(
+                &PathOramBlock {
+                    value: value_callback(&result),
+                    address: *address,
+                    position: *new_position,
+                },
+                !found,
+            );
+
+            results.push(result);
+        }
+
+        Ok(results)
+    }
+
+    fn try_update<F: Fn(&V) -> V>(
+        &mut self,
+        address: Address,
+        new_position: TreeIndex,
+        value_callback: &F,
+    ) -> Result<(V, Choice), OramError> {
         let mut result: V = V::default();
         let mut found: Choice = 0.into();
 
@@ -240,23 +305,7 @@ impl<V: OramBlock> ObliviousStash<V> {
                 .conditional_assign(&value_to_write, is_requested_index);
         }
 
-        // If a block with address `address` is not found,
-        // initialize one by writing to the last block in the stash,
-        // which will always be a dummy block.
-        let last_block_index = self.entries.len() - 1;
-        let last_entry = &mut self.entries[last_block_index];
-        assert!(bool::from(last_entry.block.ct_is_dummy()));
-        last_entry.block.conditional_assign(
-            &PathOramBlock {
-                value: value_callback(&result),
-                address,
-                position: new_position,
-            },
-            !found,
-        );
-
-        // Return the value of the found block (or the default value, if no block was found)
-        Ok(result)
+        Ok((result, found))
     }
 
     #[cfg(test)]
@@ -354,7 +403,3 @@ impl<V: OramBlock> ObliviousStash<V> {
         Ok(())
     }
 }
-
-// TODO the stash has to remember which part of it was written to physical memory on last access and if the next access
-// is smaller, it has to replace the previously written blocks that don't get overwritten by the new path with dummy ones
-// (otherwise we could write the same block twice to physical memory)

@@ -88,9 +88,16 @@ impl<const AB: BlockSize, const Z: BucketSize> PositionMap<AB, Z> {
                             PositionMap::<AB, Z>::address_within_block(update.address)?;
                         let block_callback = move |block: &PositionBlock<AB>| {
                             let mut result = *block;
+
+                            // Do not actually perform dummy writes (otherwise they would overwrite real block metadata)
+                            let is_not_dummy = update.metadata.assigned_leaf.ct_ne(&0);
+
                             for i in 0..block.data.len() {
                                 let index_matches = i.ct_eq(&address_within_block);
-                                result.data[i].conditional_assign(&update.metadata, index_matches);
+                                result.data[i].conditional_assign(
+                                    &update.metadata,
+                                    index_matches & is_not_dummy,
+                                );
                             }
                             result
                         };
@@ -224,6 +231,7 @@ impl<const AB: BlockSize, const Z: BucketSize> Oram for PositionMap<AB, Z> {
             OramMode::Off => {
                 let block_callback = |block: &PositionBlock<AB>| {
                     let mut result: PositionBlock<AB> = *block;
+                    // In off mode we do not perform dummy accesses, so no need to check
                     result.data[address_within_block] = callback(&block.data[address_within_block]);
                     result
                 };

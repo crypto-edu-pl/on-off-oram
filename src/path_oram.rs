@@ -341,8 +341,8 @@ impl<V: OramBlock, const Z: BucketSize, const AB: BlockSize> PathOram<V, Z, AB> 
                 .address
                 .ct_eq(&PathOramBlock::<V>::DUMMY_ADDRESS);
             let update_address = Address::conditional_select(
+                &(entry.block.address.wrapping_mul(2)),
                 &entry.block.address,
-                &(2 * entry.block.address),
                 is_dummy,
             );
 
@@ -375,9 +375,11 @@ impl<V: OramBlock, const Z: BucketSize, const AB: BlockSize> PathOram<V, Z, AB> 
         let mut position_map_update_priorities = Vec::with_capacity(position_map_updates.len());
 
         // Assign update priorities
-        let mut last_seen_update_addr = PathOramBlock::<V>::DUMMY_ADDRESS;
-        for update in &position_map_updates {
-            let is_duplicate = update.address.ct_eq(&last_seen_update_addr);
+        let mut last_seen_decoded_addr = PathOramBlock::<V>::DUMMY_ADDRESS;
+        for update in &mut position_map_updates {
+            let decoded_addr = update.address / 2;
+
+            let is_duplicate = decoded_addr.ct_eq(&last_seen_decoded_addr);
             let has_invalid_addr = update.address.ct_eq(&PathOramBlock::<V>::DUMMY_ADDRESS);
             let is_invalid_update = is_duplicate | has_invalid_addr;
             // The lowest bit is set iff the update is a dummy (either from the encoding or from Address::MAX)
@@ -391,7 +393,11 @@ impl<V: OramBlock, const Z: BucketSize, const AB: BlockSize> PathOram<V, Z, AB> 
 
             position_map_update_priorities.push(priority);
 
-            last_seen_update_addr = update.address;
+            last_seen_decoded_addr = decoded_addr;
+
+            // Replace the address with the decoded one (DUMMY_ADDRESS updates also get replaced, but at this point we won't
+            // be doing anything with their addresses anyway).
+            update.address = decoded_addr;
         }
 
         // Sort the updates by priority. After that we know that the first `stash_entries.len()` updates will:

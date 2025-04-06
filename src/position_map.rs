@@ -246,7 +246,54 @@ impl<const AB: BlockSize, const Z: BucketSize> Oram for PositionMap<AB, Z> {
         callbacks: &[(Address, F)],
         rng: &mut R,
     ) -> Result<Vec<Self::V>, OramError> {
-        todo!()
+        match self.mode() {
+            OramMode::On => {
+                let mut block_callbacks = Vec::with_capacity(callbacks.len());
+
+                for (address, callback) in callbacks {
+                    let address_of_block = PositionMap::<AB, Z>::address_of_block(*address);
+                    let address_within_block =
+                        PositionMap::<AB, Z>::address_within_block(*address)?;
+
+                    let block_callback = move |block: &PositionBlock<AB>| {
+                        let mut result: PositionBlock<AB> = *block;
+                        for i in 0..block.data.len() {
+                            let index_matches = i.ct_eq(&address_within_block);
+                            let position_to_write = callback(&block.data[i]);
+                            result.data[i].conditional_assign(&position_to_write, index_matches);
+                        }
+                        result
+                    };
+
+                    block_callbacks.push((address_of_block, block_callback));
+                }
+
+                let blocks = match self {
+                    PositionMap::Base(linear_oram) => {
+                        linear_oram.batch_access(&block_callbacks, rng)?
+                    }
+                    PositionMap::Recursive(block_oram) => {
+                        block_oram.batch_access(&block_callbacks, rng)?
+                    }
+                };
+
+                let mut results = Vec::with_capacity(blocks.len());
+
+                for (block, (address, _)) in blocks.into_iter().zip(callbacks) {
+                    let address_within_block =
+                        PositionMap::<AB, Z>::address_within_block(*address)?;
+                    let mut result = BlockMetadata::default();
+                    for i in 0..block.data.len() {
+                        let index_matches = i.ct_eq(&address_within_block);
+                        result.conditional_assign(&block.data[i], index_matches);
+                    }
+                    results.push(result);
+                }
+
+                Ok(results)
+            }
+            OramMode::Off => unimplemented!("We do not generate batch accesses in off mode."),
+        }
     }
 
     fn turn_on<R: RngCore + CryptoRng>(&mut self, rng: &mut R) -> Result<(), OramError> {

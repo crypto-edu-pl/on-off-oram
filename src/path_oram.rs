@@ -109,6 +109,7 @@ pub struct PathOram<V: OramBlock, const Z: BucketSize, const AB: BlockSize> {
 enum BlockLocation {
     OramTree { bucket: usize, offset: usize },
     Stash { offset: usize },
+    Dummy,
 }
 
 /// An `Oram` suitable for most use cases, with reasonable default choices of parameters.
@@ -478,16 +479,27 @@ impl<V: OramBlock, const Z: BucketSize, const AB: BlockSize> Oram for PathOram<V
                     hash_map::Entry::Vacant(vacant) => {
                         let metadata = self.position_map.read(address, rng)?;
 
-                        let block_location = if metadata.exact_bucket == BlockMetadata::NOT_IN_TREE
-                        {
-                            BlockLocation::Stash {
-                                offset: metadata.exact_offset.try_into()?,
-                            }
-                        } else {
-                            BlockLocation::OramTree {
-                                bucket: metadata.exact_bucket.try_into()?,
-                                offset: metadata.exact_offset.try_into()?,
-                            }
+                        let block_location = match metadata {
+                            BlockMetadata {
+                                exact_bucket: BlockMetadata::NOT_IN_TREE,
+                                exact_offset: BlockMetadata::UNINITIALIZED,
+                                ..
+                            } => BlockLocation::Dummy,
+                            BlockMetadata {
+                                exact_bucket: BlockMetadata::NOT_IN_TREE,
+                                exact_offset,
+                                ..
+                            } => BlockLocation::Stash {
+                                offset: exact_offset.try_into()?,
+                            },
+                            BlockMetadata {
+                                exact_bucket,
+                                exact_offset,
+                                ..
+                            } => BlockLocation::OramTree {
+                                bucket: exact_bucket.try_into()?,
+                                offset: exact_offset.try_into()?,
+                            },
                         };
 
                         *vacant.insert(block_location)
@@ -503,6 +515,7 @@ impl<V: OramBlock, const Z: BucketSize, const AB: BlockSize> Oram for PathOram<V
                         let bucket = &mut self.physical_memory[bucket];
                         &mut bucket.blocks[offset]
                     }
+                    BlockLocation::Dummy => &mut PathOramBlock::dummy(),
                 };
 
                 let result = block.value;

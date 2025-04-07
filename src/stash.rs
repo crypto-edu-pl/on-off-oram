@@ -24,6 +24,7 @@ const STASH_GROWTH_INCREMENT: usize = 10;
 pub struct ObliviousStash<V: OramBlock> {
     pub entries: Vec<StashEntry<V>>,
     pub path_size: StashSize,
+    max_batch_size: StashSize,
     prefix_last_written_to_physical_memory: usize,
 }
 
@@ -66,16 +67,21 @@ impl<V: OramBlock> ObliviousStash<V> {
 }
 
 impl<V: OramBlock> ObliviousStash<V> {
-    pub fn new(path_size: StashSize, overflow_size: StashSize) -> Result<Self, OramError> {
+    pub fn new(
+        path_size: StashSize,
+        overflow_size: StashSize,
+        max_batch_size: StashSize,
+    ) -> Result<Self, OramError> {
         // Make the stash larger - path_size * path_size - so that it can fit the paths of a batch
         // of size path_size (this means that on a single Path ORAM access we can update the position map
         // in a single top-level batch)
         // TODO think if other stash and batch sizes make more sense
-        let num_stash_blocks: usize = (path_size * path_size + overflow_size).try_into()?;
+        let num_stash_blocks: usize = (path_size * max_batch_size + overflow_size).try_into()?;
 
         Ok(Self {
             entries: vec![StashEntry::<V>::dummy(); num_stash_blocks],
             path_size,
+            max_batch_size,
             prefix_last_written_to_physical_memory: 0,
         })
     }
@@ -146,8 +152,8 @@ impl<V: OramBlock> ObliviousStash<V> {
                 .enumerate()
                 .skip(first_unassigned_block_index)
             {
-                // Skip the last `self.path_size` blocks. They are reserved for handling (batch) writes to uninitialized addresses.
-                if i >= self.entries.len() - usize::try_from(self.path_size)? {
+                // Skip the last `self.max_batch_size` blocks. They are reserved for handling (batch) writes to uninitialized addresses.
+                if i >= self.entries.len() - usize::try_from(self.max_batch_size)? {
                     break;
                 }
 
@@ -177,7 +183,7 @@ impl<V: OramBlock> ObliviousStash<V> {
             // and repeat the process of trying to fill all unfilled levels with dummy blocks.
             if exists_unfilled_levels.into() {
                 first_unassigned_block_index =
-                    self.entries.len() - usize::try_from(self.path_size)?;
+                    self.entries.len() - usize::try_from(self.max_batch_size)?;
 
                 self.entries.resize(
                     self.entries.len() + STASH_GROWTH_INCREMENT,
@@ -282,8 +288,8 @@ impl<V: OramBlock> ObliviousStash<V> {
                 .enumerate()
                 .skip(first_unassigned_block_index)
             {
-                // Skip the last `self.path_size` blocks. They are reserved for handling (batch) writes to uninitialized addresses.
-                if i >= self.entries.len() - usize::try_from(self.path_size)? {
+                // Skip the last `self.max_batch_size` blocks. They are reserved for handling (batch) writes to uninitialized addresses.
+                if i >= self.entries.len() - usize::try_from(self.max_batch_size)? {
                     break;
                 }
 
@@ -313,7 +319,7 @@ impl<V: OramBlock> ObliviousStash<V> {
             // and repeat the process of trying to fill all unfilled levels with dummy blocks.
             if exists_unfilled_levels.into() {
                 first_unassigned_block_index =
-                    self.entries.len() - usize::try_from(self.path_size)?;
+                    self.entries.len() - usize::try_from(self.max_batch_size)?;
 
                 self.entries.resize(
                     self.entries.len() + STASH_GROWTH_INCREMENT,

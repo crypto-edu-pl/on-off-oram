@@ -154,6 +154,7 @@ impl<const AB: BlockSize, const Z: BucketSize> PositionMap<AB, Z> {
                 rng,
                 overflow_size,
                 recursion_cutoff,
+                u64::from(block_capacity.ilog2()) * u64::try_from(Z)?,
             )?)))
         }
     }

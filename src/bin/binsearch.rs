@@ -50,9 +50,15 @@ fn main() {
         .collect::<Vec<u64>>();
     values.sort();
 
+    let start = Instant::now();
+
     for (i, value) in values.iter().enumerate() {
         oram_array.write(i as Address, *value, &mut rng).unwrap();
     }
+
+    let duration = start.elapsed();
+
+    println!("Initialized ORAM in {:?}", duration);
 
     println!("ORAM on:");
 

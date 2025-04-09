@@ -225,6 +225,19 @@ where
         self.batch_access(&callbacks, rng)
     }
 
+    /// Perform a batch of oblivious ORAM writes.
+    fn batch_write<R: RngCore + CryptoRng>(
+        &mut self,
+        new_values: &[(Address, Self::V)],
+        rng: &mut R,
+    ) -> Result<Vec<Self::V>, OramError> {
+        let callbacks = new_values
+            .iter()
+            .map(|(index, new_value)| (*index, |_: &Self::V| *new_value))
+            .collect::<Vec<_>>();
+        self.batch_access(&callbacks, rng)
+    }
+
     /// Turn ORAM on - subsequent accesses will be oblivious.
     ///
     /// Time can depend on current mode and if current mode is off, on the accesses made in off mode

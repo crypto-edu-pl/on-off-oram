@@ -18,14 +18,13 @@ use super::{position_map::PositionMap, stash::ObliviousStash};
 use crate::{
     bucket::{BlockMetadata, Bucket, PathOramBlock, PositionBlock},
     linear_time_oram::LinearTimeOram,
-    position_map::PositionMapUpdate,
     stash::StashEntry,
-    utils::{bitonic_sort_by_key, bitonic_sort_by_keys, CompleteBinaryTreeIndex, TreeHeight},
+    utils::{bitonic_sort_by_keys, CompleteBinaryTreeIndex, TreeHeight},
     Address, BlockSize, BucketSize, Oram, OramBlock, OramError, OramMode, RecursionCutoff,
     StashSize,
 };
 use rand::{CryptoRng, Rng, RngCore};
-use subtle::{Choice, ConditionallySelectable, ConstantTimeEq};
+use subtle::{ConditionallySelectable, ConstantTimeEq};
 
 /// The default cutoff size in blocks
 /// below which `PathOram` uses a linear position map instead of a recursive one.
@@ -47,7 +46,7 @@ pub const LINEAR_TIME_ORAM_CUTOFF: RecursionCutoff = 1 << 10;
 /// Default max batch size.
 pub const DEFAULT_MAX_BATCH_SIZE: u64 = 1;
 
-const USE_BATCHING_IN_POSITION_MAP: bool = false;
+const USE_BATCHING_IN_POSITION_MAP: bool = true;
 
 /// A doubly oblivious Path ORAM.
 ///
@@ -282,8 +281,18 @@ impl<V: OramBlock, const Z: BucketSize, const AB: BlockSize> PathOram<V, Z, AB> 
 
         // Initialize a new position map,
         // and initialize its entries to random leaf indices.
+        //
+        // Add extra entries at the end of the position map that can be written when we are updating the exact
+        // positions of blocks and we encounter a dummy block (since dummy blocks do not have position map entries).
+        let position_map_capacity = if USE_BATCHING_IN_POSITION_MAP {
+            // We need only stash.entries.len() - 1 extra position map entries, since there is always at least one real
+            // address being accessed
+            block_capacity + u64::try_from(stash.entries.len())? - 1
+        } else {
+            block_capacity + 1
+        };
         let mut position_map = PositionMap::new(
-            block_capacity,
+            position_map_capacity,
             rng,
             overflow_size,
             recursion_cutoff,
@@ -333,7 +342,8 @@ impl<V: OramBlock, const Z: BucketSize, const AB: BlockSize> PathOram<V, Z, AB> 
         // Create a batch of position map updates that contains exactly stash_entries.len()
         // updates (each for a different address).
 
-        let mut position_map_updates = Vec::with_capacity(2 * stash_entries.len());
+        let mut addresses = Vec::with_capacity(2 * stash_entries.len() - 1);
+        let mut metadatas = Vec::with_capacity(2 * stash_entries.len() - 1);
 
         // Put the updates resulting from the stash entries in the update array.
         for (i, entry) in stash_entries.iter().enumerate() {
@@ -347,83 +357,29 @@ impl<V: OramBlock, const Z: BucketSize, const AB: BlockSize> PathOram<V, Z, AB> 
                 exact_offset,
             };
 
-            // Encode the address of real updates as `2 * address` to indicate that the update came from the stash.
-            // Do not encode the address of dummy updates, since it is equal to `Address::MAX`.
-            let is_dummy = entry
-                .block
-                .address
-                .ct_eq(&PathOramBlock::<V>::DUMMY_ADDRESS);
-            let update_address = Address::conditional_select(
-                &(entry.block.address.wrapping_mul(2)),
-                &entry.block.address,
-                is_dummy,
-            );
-
-            position_map_updates.push(PositionMapUpdate {
-                address: update_address,
-                metadata,
-            });
+            addresses.push(entry.block.address);
+            metadatas.push(metadata);
         }
 
-        // Put dummy updates for addresses {0, ..., stash_entries.len() - 1} in the update array.
-        // Some of them may overlap with (have the same address as) real updates from the stash, but we
-        // will be guaranteed to be able to choose at least stash_entries.len() unique updates.
-        //
-        // Encode the address as `2 * address + 1` to indicate that the update did not come from the stash
+        // Put dummy updates for addresses {self.block_capacity(), ..., self.block_capacity() + stash_entries.len() - 2}
+        // in the update array. This way, we will be guaranteed to be able to choose at least stash_entries.len() valid updates.
+        let block_capacity = self.block_capacity()?;
         for i in 0..stash_entries.len() {
-            position_map_updates.push(PositionMapUpdate {
-                address: (2 * i + 1).try_into()?,
-                metadata: BlockMetadata::default(),
-            });
+            addresses.push(block_capacity + u64::try_from(i)?);
+            metadatas.push(BlockMetadata::default());
         }
 
-        // Sort the updates by address. Thanks to the encoding, if there are conflicting updates the one
-        // from the stash comes first.
-        bitonic_sort_by_key(&mut position_map_updates, &|update| update.address);
+        // Sort the updates by address.
+        bitonic_sort_by_keys(&mut metadatas, &mut addresses);
+        // Now in the arrays we have: first all real updates, then dummy updates with valid addresses, then dummy updates with dummy addresses.
 
-        // Update priorities:
-        // 0 - an update of a real block from the stash
-        // 1 - a dummy update not from the stash (with a valid address) that does not overlap with a real update
-        // u8::MAX - a dummy update that either overlaps with a real update or has an invalid address
-        let mut position_map_update_priorities = Vec::with_capacity(position_map_updates.len());
+        addresses.truncate(stash_entries.len());
+        metadatas.truncate(stash_entries.len());
 
-        // Assign update priorities
-        let mut last_seen_decoded_addr = PathOramBlock::<V>::DUMMY_ADDRESS;
-        for update in &mut position_map_updates {
-            let decoded_addr = update.address / 2;
-
-            let is_duplicate = decoded_addr.ct_eq(&last_seen_decoded_addr);
-            let has_invalid_addr = update.address.ct_eq(&PathOramBlock::<V>::DUMMY_ADDRESS);
-            let is_invalid_update = is_duplicate | has_invalid_addr;
-            // The lowest bit is set iff the update is a dummy (either from the encoding or from Address::MAX)
-            let is_dummy_update = Choice::from(u8::try_from(update.address & 1)?);
-
-            let priority = u8::conditional_select(
-                &bool::from(is_dummy_update).into(),
-                &u8::MAX,
-                is_invalid_update,
-            );
-
-            position_map_update_priorities.push(priority);
-
-            last_seen_decoded_addr = decoded_addr;
-
-            // Replace the address with the decoded one (DUMMY_ADDRESS updates also get replaced, but at this point we won't
-            // be doing anything with their addresses anyway).
-            update.address = decoded_addr;
-        }
-
-        // Sort the updates by priority. After that we know that the first `stash_entries.len()` updates will:
-        // - include all real updates
-        // - include only valid and unique addresses
-        bitonic_sort_by_keys(
-            &mut position_map_updates,
-            &mut position_map_update_priorities,
-        );
-
-        // If the block is a dummy, the position map will not actually update the metadata.
-        self.position_map
-            .batch_update(&position_map_updates[..stash_entries.len()], rng)?;
+        self.position_map.batch_write(
+            &addresses.into_iter().zip(metadatas).collect::<Vec<_>>(),
+            rng,
+        )?;
 
         Ok(())
     }
@@ -490,15 +446,19 @@ impl<V: OramBlock, const Z: BucketSize, const AB: BlockSize> Oram for PathOram<V
                             exact_offset,
                         };
 
+                        // If the entry is a dummy, write to a dummy position at the end of the map so that no real
+                        // position gets overwritten
                         let entry_is_dummy = entry
                             .block
                             .address
                             .ct_eq(&PathOramBlock::<V>::DUMMY_ADDRESS);
-                        let entry_address =
-                            Address::conditional_select(&entry.block.address, &0, entry_is_dummy);
+                        let entry_address = Address::conditional_select(
+                            &entry.block.address,
+                            &self.block_capacity()?,
+                            entry_is_dummy,
+                        );
 
-                        // If the block is a dummy, the position map will not actually update the metadata.
-                        self.position_map.update(entry_address, new_metadata, rng)?;
+                        self.position_map.write(entry_address, new_metadata, rng)?;
                     }
                 }
 

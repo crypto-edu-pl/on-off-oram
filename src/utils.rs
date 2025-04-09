@@ -179,63 +179,6 @@ fn helper_bitonic_merge_by_keys<
     }
 }
 
-pub(crate) fn bitonic_sort_by_key<
-    T: ConditionallySelectable,
-    K: Ord + ConditionallySelectable + ConstantTimeGreater + ConstantTimeLess,
-    F: Fn(&T) -> K,
->(
-    items: &mut [T],
-    key: &F,
-) {
-    let ascending: Choice = 1.into();
-    helper_bitonic_sort_by_key(0, items.len(), items, key, ascending);
-}
-
-fn helper_bitonic_sort_by_key<
-    T: ConditionallySelectable,
-    K: Ord + ConditionallySelectable + ConstantTimeGreater + ConstantTimeLess,
-    F: Fn(&T) -> K,
->(
-    lo: usize,
-    n: usize,
-    items: &mut [T],
-    key: &F,
-    direction: Choice,
-) {
-    if n > 1 {
-        let m = n / 2;
-        helper_bitonic_sort_by_key(lo, m, items, key, !direction);
-        helper_bitonic_sort_by_key(lo + m, n - m, items, key, direction);
-        helper_bitonic_merge_by_key(lo, n, items, key, direction);
-    }
-}
-
-fn helper_bitonic_merge_by_key<
-    T: ConditionallySelectable,
-    K: Ord + ConditionallySelectable + ConstantTimeGreater + ConstantTimeLess,
-    F: Fn(&T) -> K,
->(
-    lo: usize,
-    n: usize,
-    items: &mut [T],
-    key: &F,
-    direction: Choice,
-) {
-    if n > 1 {
-        let m = n.next_power_of_two() >> 1;
-        for i in lo..(lo + n - m) {
-            let j = i + m;
-            let jlti = key(&items[j]).ct_lt(&key(&items[i]));
-            let do_swap = !(jlti ^ direction);
-            let (items_i, items_j) = items.split_at_mut(i + 1);
-            T::conditional_swap(&mut items_i[i], &mut items_j[j - (i + 1)], do_swap);
-        }
-
-        helper_bitonic_merge_by_key(lo, m, items, key, direction);
-        helper_bitonic_merge_by_key(lo + m, n - m, items, key, direction);
-    }
-}
-
 #[cfg(test)]
 mod tests {
     use super::TreeIndex;

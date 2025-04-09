@@ -15,7 +15,7 @@ use crate::{
     Address, BucketSize, OramBlock, OramError, StashSize,
 };
 
-use subtle::{Choice, ConditionallySelectable, ConstantTimeEq};
+use subtle::{Choice, ConditionallySelectable, ConstantTimeEq, ConstantTimeLess};
 
 const STASH_GROWTH_INCREMENT: usize = 10;
 
@@ -25,7 +25,7 @@ pub struct ObliviousStash<V: OramBlock> {
     pub entries: Vec<StashEntry<V>>,
     pub path_size: StashSize,
     max_batch_size: StashSize,
-    prefix_last_written_to_physical_memory: usize,
+    prefix_last_read_from_physical_memory: usize,
 }
 
 #[derive(Debug, Clone, Copy)]
@@ -82,7 +82,7 @@ impl<V: OramBlock> ObliviousStash<V> {
             entries: vec![StashEntry::<V>::dummy(); num_stash_blocks],
             path_size,
             max_batch_size,
-            prefix_last_written_to_physical_memory: 0,
+            prefix_last_read_from_physical_memory: 0,
         })
     }
 
@@ -92,13 +92,17 @@ impl<V: OramBlock> ObliviousStash<V> {
         position: TreeIndex,
     ) -> Result<(), OramError> {
         let height = position.ct_depth();
-        let mut level_assignments = vec![TreeIndex::MAX; self.len()];
+        let mut level_assignments = vec![TreeIndex::MAX - 1; self.len()];
         let mut level_counts = vec![0; usize::try_from(height)? + 1];
+
+        let mut n_dummy_blocks = 0;
 
         // Assign all non-dummy blocks in the stash to either the path or the overflow.
         for (i, entry) in self.entries.iter().enumerate() {
             // If `block` is a dummy, the rest of this loop iteration will be a no-op, and the values don't matter.
             let block_is_dummy = entry.block.ct_is_dummy();
+
+            n_dummy_blocks += u64::from(bool::from(block_is_dummy));
 
             // Set up valid but meaningless input to the computation in case `block` is a dummy.
             let an_arbitrary_leaf: TreeIndex = 1 << height;
@@ -132,11 +136,17 @@ impl<V: OramBlock> ObliviousStash<V> {
             }
             // If the block was not able to be assigned to any bucket, assign it to the overflow.
             level_assignments[i]
-                .conditional_assign(&(TreeIndex::MAX - 1), (!assigned) & (!block_is_dummy));
+                .conditional_assign(&TreeIndex::MAX, (!assigned) & (!block_is_dummy));
         }
 
+        // We need enough dummy blocks to be able to read a maximum size batch of paths and have self.max_batch_size spare
+        // blocks to handle writes to uninitialized blocks.
+        let required_dummy_blocks = self.max_batch_size * self.path_size
+            - u64::try_from(self.prefix_last_read_from_physical_memory)?
+            + self.max_batch_size;
+
         // Assign dummy blocks to the remaining non-full buckets until all buckets are full.
-        let mut exists_unfilled_levels: Choice = 1.into();
+        let mut need_more_dummy_blocks: Choice = 1.into();
         let mut first_unassigned_block_index: usize = 0;
         // Unless the stash overflows, this loop will execute exactly once, and the inner `if` will not execute.
         // If the stash overflows, this loop will execute twice and the inner `if` will execute.
@@ -144,7 +154,7 @@ impl<V: OramBlock> ObliviousStash<V> {
         // This is a violation of obliviousness, but the alternative is simply to fail.
         // If the stash is set large enough when the ORAM is initialized,
         // stash overflow will occur only with negligible probability.
-        while exists_unfilled_levels.into() {
+        while need_more_dummy_blocks.into() {
             // Make a pass over the stash, assigning dummy blocks to unfilled levels in the path.
             for (i, entry) in self
                 .entries
@@ -152,11 +162,6 @@ impl<V: OramBlock> ObliviousStash<V> {
                 .enumerate()
                 .skip(first_unassigned_block_index)
             {
-                // Skip the last `self.max_batch_size` blocks. They are reserved for handling (batch) writes to uninitialized addresses.
-                if i >= self.entries.len() - usize::try_from(self.max_batch_size)? {
-                    break;
-                }
-
                 let block_free = entry.block.ct_is_dummy();
 
                 let mut assigned: Choice = 0.into();
@@ -168,20 +173,23 @@ impl<V: OramBlock> ObliviousStash<V> {
                     count.conditional_assign(&(*count + 1), !no_op);
                     assigned |= !no_op;
                 }
+
+                n_dummy_blocks -= u64::from(bool::from(block_free & assigned));
             }
 
-            // Check that all levels have been filled.
-            exists_unfilled_levels = 0.into();
+            // Check that all levels have been filled and there are enough dummy blocks.
+            need_more_dummy_blocks = 0.into();
             for count in level_counts.iter() {
                 let full = count.ct_eq(&(u64::try_from(Z)?));
-                exists_unfilled_levels |= !full;
+                need_more_dummy_blocks |= !full;
             }
+            need_more_dummy_blocks |= n_dummy_blocks.ct_lt(&required_dummy_blocks);
 
             // If not, there must not have been enough dummy blocks remaining in the stash.
             // That is, the stash has overflowed.
             // So, extend the stash with STASH_GROWTH_INCREMENT more dummy blocks,
             // and repeat the process of trying to fill all unfilled levels with dummy blocks.
-            if exists_unfilled_levels.into() {
+            if need_more_dummy_blocks.into() {
                 first_unassigned_block_index =
                     self.entries.len() - usize::try_from(self.max_batch_size)?;
 
@@ -226,7 +234,11 @@ impl<V: OramBlock> ObliviousStash<V> {
         positions: &[TreeIndex],
     ) -> Result<(), OramError> {
         let height = positions[0].ct_depth();
-        let mut bucket_assignments = vec![TreeIndex::MAX; self.len()];
+        // The assignments will be:
+        // - a bucket index for blocks that get assigned to a bucket
+        // - TreeIndex::MAX - 1 for dummy blocks
+        // - TreeIndex::MAX for other real blocks ("the overflow")
+        let mut bucket_assignments = vec![TreeIndex::MAX - 1; self.len()];
 
         // Fun fact: the maximal number of buckets in a subtree comprised of k paths is k * (height + 1) - (kth sorting number)
         // (the fact that it is a sorting number found using OEIS). This is because the second path has at least one node in common
@@ -236,10 +248,14 @@ impl<V: OramBlock> ObliviousStash<V> {
         // The positions (paths) are public knowledge, so we don't have to do computations that rely only on them obliviously.
         let mut bucket_counts = prepare_bucket_counts(positions);
 
+        let mut n_dummy_blocks = 0;
+
         // Assign all non-dummy blocks in the stash to either a path or the overflow.
         for (i, entry) in self.entries.iter().enumerate() {
             // If `block` is a dummy, the rest of this loop iteration will be a no-op, and the values don't matter.
             let block_is_dummy = entry.block.ct_is_dummy();
+
+            n_dummy_blocks += u64::from(bool::from(block_is_dummy));
 
             // Set up valid but meaningless input to the computation in case `block` is a dummy.
             let an_arbitrary_leaf: TreeIndex = 1 << height;
@@ -268,11 +284,17 @@ impl<V: OramBlock> ObliviousStash<V> {
             }
             // If the block was not able to be assigned to any bucket, assign it to the overflow.
             bucket_assignments[i]
-                .conditional_assign(&(TreeIndex::MAX - 1), (!assigned) & (!block_is_dummy));
+                .conditional_assign(&TreeIndex::MAX, (!assigned) & (!block_is_dummy));
         }
 
+        // We need enough dummy blocks to be able to read a maximum size batch of paths and have self.max_batch_size spare
+        // blocks to handle writes to uninitialized blocks.
+        let required_dummy_blocks = self.max_batch_size * self.path_size
+            - u64::try_from(self.prefix_last_read_from_physical_memory)?
+            + self.max_batch_size;
+
         // Assign dummy blocks to the remaining non-full buckets until all buckets are full.
-        let mut exists_unfilled_levels: Choice = 1.into();
+        let mut need_more_dummy_blocks: Choice = 1.into();
         let mut first_unassigned_block_index: usize = 0;
         // Unless the stash overflows, this loop will execute exactly once, and the inner `if` will not execute.
         // If the stash overflows, this loop will execute twice and the inner `if` will execute.
@@ -280,7 +302,7 @@ impl<V: OramBlock> ObliviousStash<V> {
         // This is a violation of obliviousness, but the alternative is simply to fail.
         // If the stash is set large enough when the ORAM is initialized,
         // stash overflow will occur only with negligible probability.
-        while exists_unfilled_levels.into() {
+        while need_more_dummy_blocks.into() {
             // Make a pass over the stash, assigning dummy blocks to unfilled levels in the path.
             for (i, entry) in self
                 .entries
@@ -288,11 +310,6 @@ impl<V: OramBlock> ObliviousStash<V> {
                 .enumerate()
                 .skip(first_unassigned_block_index)
             {
-                // Skip the last `self.max_batch_size` blocks. They are reserved for handling (batch) writes to uninitialized addresses.
-                if i >= self.entries.len() - usize::try_from(self.max_batch_size)? {
-                    break;
-                }
-
                 let block_free = entry.block.ct_is_dummy();
 
                 let mut assigned: Choice = 0.into();
@@ -304,20 +321,23 @@ impl<V: OramBlock> ObliviousStash<V> {
                     count.conditional_assign(&(*count + 1), !no_op);
                     assigned |= !no_op;
                 }
+
+                n_dummy_blocks -= u64::from(bool::from(block_free & assigned));
             }
 
-            // Check that all levels have been filled.
-            exists_unfilled_levels = 0.into();
+            // Check that all levels have been filled and there are enough dummy blocks.
+            need_more_dummy_blocks = 0.into();
             for (_, count) in bucket_counts.iter() {
                 let full = count.ct_eq(&(u64::try_from(Z)?));
-                exists_unfilled_levels |= !full;
+                need_more_dummy_blocks |= !full;
             }
+            need_more_dummy_blocks |= n_dummy_blocks.ct_lt(&required_dummy_blocks);
 
             // If not, there must not have been enough dummy blocks remaining in the stash.
             // That is, the stash has overflowed.
             // So, extend the stash with STASH_GROWTH_INCREMENT more dummy blocks,
             // and repeat the process of trying to fill all unfilled levels with dummy blocks.
-            if exists_unfilled_levels.into() {
+            if need_more_dummy_blocks.into() {
                 first_unassigned_block_index =
                     self.entries.len() - usize::try_from(self.max_batch_size)?;
 
@@ -365,12 +385,14 @@ impl<V: OramBlock> ObliviousStash<V> {
         let (result, found) = self.try_update(address, new_position, &value_callback)?;
 
         // If a block with address `address` is not found,
-        // initialize one by writing to the last block in the stash,
+        // initialize one by writing to a reserved block in the stash,
         // which will always be a dummy block.
-        let last_block_index = self.entries.len() - 1;
-        let last_entry = &mut self.entries[last_block_index];
-        assert!(bool::from(last_entry.block.ct_is_dummy()));
-        last_entry.block.conditional_assign(
+        //
+        // Note that the batch size is public information, so a direct access like this is fine.
+        let reserved_block_index = self.prefix_last_read_from_physical_memory;
+        let reserved_entry = &mut self.entries[reserved_block_index];
+        assert!(bool::from(reserved_entry.block.ct_is_dummy()));
+        reserved_entry.block.conditional_assign(
             &PathOramBlock {
                 value: value_callback(&result),
                 address,
@@ -400,7 +422,7 @@ impl<V: OramBlock> ObliviousStash<V> {
             // If a block with address `address` is not found,
             // initialize one by writing to a reserved block in the stash,
             // which will always be a dummy block
-            let reserved_block_index = self.entries.len() - 1 - i;
+            let reserved_block_index = self.prefix_last_read_from_physical_memory + i;
             let reserved_entry = &mut self.entries[reserved_block_index];
             assert!(bool::from(reserved_entry.block.ct_is_dummy()));
             reserved_entry.block.conditional_assign(
@@ -453,7 +475,7 @@ impl<V: OramBlock> ObliviousStash<V> {
     #[cfg(test)]
     pub fn occupancy(&self) -> StashSize {
         let mut result = 0;
-        for i in self.prefix_last_written_to_physical_memory..self.entries.len() {
+        for i in self.prefix_last_read_from_physical_memory..self.entries.len() {
             if !self.entries[i].block.is_dummy() {
                 result += 1;
             }
@@ -481,11 +503,11 @@ impl<V: OramBlock> ObliviousStash<V> {
         }
 
         let stash_index = self.path_size.try_into()?;
-        if stash_index < self.prefix_last_written_to_physical_memory {
-            self.entries[stash_index..self.prefix_last_written_to_physical_memory]
+        if stash_index < self.prefix_last_read_from_physical_memory {
+            self.entries[stash_index..self.prefix_last_read_from_physical_memory]
                 .fill(StashEntry::dummy());
         }
-        self.prefix_last_written_to_physical_memory = stash_index;
+        self.prefix_last_read_from_physical_memory = stash_index;
 
         Ok(())
     }
@@ -503,7 +525,7 @@ impl<V: OramBlock> ObliviousStash<V> {
         // using a smaller one) - this in can cause real blocks to get overwritten with the newly fetched path.
         assert!(
             usize::try_from(self.path_size)? * positions.len()
-                < self.prefix_last_written_to_physical_memory
+                < self.prefix_last_read_from_physical_memory
         );
 
         // This is hacky, but deepest_common_ancestor called with an argument equal to 0 will return 0,
@@ -521,11 +543,11 @@ impl<V: OramBlock> ObliviousStash<V> {
             prev_position = *position;
         }
 
-        if stash_index < self.prefix_last_written_to_physical_memory {
-            self.entries[stash_index..self.prefix_last_written_to_physical_memory]
+        if stash_index < self.prefix_last_read_from_physical_memory {
+            self.entries[stash_index..self.prefix_last_read_from_physical_memory]
                 .fill(StashEntry::dummy());
         }
-        self.prefix_last_written_to_physical_memory = stash_index;
+        self.prefix_last_read_from_physical_memory = stash_index;
 
         Ok(())
     }

@@ -47,6 +47,8 @@ pub const LINEAR_TIME_ORAM_CUTOFF: RecursionCutoff = 1 << 10;
 /// Default max batch size.
 pub const DEFAULT_MAX_BATCH_SIZE: u64 = 1;
 
+const USE_BATCHING_IN_POSITION_MAP: bool = false;
+
 /// A doubly oblivious Path ORAM.
 ///
 /// ## Parameters
@@ -280,8 +282,13 @@ impl<V: OramBlock, const Z: BucketSize, const AB: BlockSize> PathOram<V, Z, AB> 
 
         // Initialize a new position map,
         // and initialize its entries to random leaf indices.
-        let mut position_map =
-            PositionMap::new(block_capacity, rng, overflow_size, recursion_cutoff)?;
+        let mut position_map = PositionMap::new(
+            block_capacity,
+            rng,
+            overflow_size,
+            recursion_cutoff,
+            USE_BATCHING_IN_POSITION_MAP,
+        )?;
 
         let first_leaf_index: u64 = 2u64.pow(height.try_into()?);
         let last_leaf_index = (2 * first_leaf_index) - 1;
@@ -414,6 +421,7 @@ impl<V: OramBlock, const Z: BucketSize, const AB: BlockSize> PathOram<V, Z, AB> 
             &mut position_map_update_priorities,
         );
 
+        // If the block is a dummy, the position map will not actually update the metadata.
         self.position_map
             .batch_update(&position_map_updates[..stash_entries.len()], rng)?;
 
@@ -465,7 +473,34 @@ impl<V: OramBlock, const Z: BucketSize, const AB: BlockSize> Oram for PathOram<V
                 self.stash
                     .write_to_path(&mut self.physical_memory, metadata.assigned_leaf)?;
 
-                self.batch_update_position_map(0..self.stash.entries.len(), rng)?;
+                if USE_BATCHING_IN_POSITION_MAP {
+                    self.batch_update_position_map(0..self.stash.entries.len(), rng)?;
+                } else {
+                    for (i, entry) in self.stash.entries.iter().enumerate() {
+                        let is_in_tree = entry.exact_bucket.ct_ne(&BlockMetadata::NOT_IN_TREE);
+                        let exact_offset = u64::conditional_select(
+                            &i.try_into()?,
+                            &entry.exact_offset,
+                            is_in_tree,
+                        );
+
+                        let new_metadata = BlockMetadata {
+                            assigned_leaf: entry.block.position,
+                            exact_bucket: entry.exact_bucket,
+                            exact_offset,
+                        };
+
+                        let entry_is_dummy = entry
+                            .block
+                            .address
+                            .ct_eq(&PathOramBlock::<V>::DUMMY_ADDRESS);
+                        let entry_address =
+                            Address::conditional_select(&entry.block.address, &0, entry_is_dummy);
+
+                        // If the block is a dummy, the position map will not actually update the metadata.
+                        self.position_map.update(entry_address, new_metadata, rng)?;
+                    }
+                }
 
                 result
             }

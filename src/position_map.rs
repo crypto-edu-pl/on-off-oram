@@ -119,6 +119,45 @@ impl<const AB: BlockSize, const Z: BucketSize> PositionMap<AB, Z> {
 
         Ok(())
     }
+
+    pub fn update<R: RngCore + CryptoRng>(
+        &mut self,
+        address: Address,
+        metadata: BlockMetadata,
+        rng: &mut R,
+    ) -> Result<(), OramError> {
+        let address_of_block = PositionMap::<AB, Z>::address_of_block(address);
+        let address_within_block = PositionMap::<AB, Z>::address_within_block(address)?;
+
+        match self.mode() {
+            OramMode::On => {
+                let block_callback = |block: &PositionBlock<AB>| {
+                    let mut result = *block;
+
+                    // Do not actually perform dummy writes (otherwise they would overwrite real block metadata)
+                    let is_not_dummy = metadata.assigned_leaf.ct_ne(&0);
+
+                    for i in 0..block.data.len() {
+                        let index_matches = i.ct_eq(&address_within_block);
+                        result.data[i].conditional_assign(&metadata, index_matches & is_not_dummy);
+                    }
+                    result
+                };
+                match self {
+                    PositionMap::Base(linear_oram) => {
+                        linear_oram.access(address_of_block, block_callback, rng)?;
+                    }
+
+                    PositionMap::Recursive(block_oram) => {
+                        block_oram.access(address_of_block, block_callback, rng)?;
+                    }
+                }
+            }
+            OramMode::Off => unimplemented!("We do not generate position map updates in off mode."),
+        }
+
+        Ok(())
+    }
 }
 
 impl<const AB: BlockSize, const Z: BucketSize> PositionMap<AB, Z> {
@@ -127,6 +166,7 @@ impl<const AB: BlockSize, const Z: BucketSize> PositionMap<AB, Z> {
         rng: &mut R,
         overflow_size: StashSize,
         recursion_cutoff: RecursionCutoff,
+        use_batching: bool,
     ) -> Result<Self, OramError> {
         log::info!(
             "PositionMap::new(number_of_addresses = {})",
@@ -149,12 +189,17 @@ impl<const AB: BlockSize, const Z: BucketSize> PositionMap<AB, Z> {
             Ok(Self::Base(LinearTimeOram::new(block_capacity)?))
         } else {
             let block_capacity = number_of_addresses / ab_address;
+            let max_batch_size = if use_batching {
+                u64::from(block_capacity.ilog2()) * u64::try_from(Z)?
+            } else {
+                1
+            };
             Ok(Self::Recursive(Box::new(PathOram::new_with_parameters(
                 block_capacity,
                 rng,
                 overflow_size,
                 recursion_cutoff,
-                u64::from(block_capacity.ilog2()) * u64::try_from(Z)?,
+                max_batch_size,
             )?)))
         }
     }
@@ -232,7 +277,6 @@ impl<const AB: BlockSize, const Z: BucketSize> Oram for PositionMap<AB, Z> {
             OramMode::Off => {
                 let block_callback = |block: &PositionBlock<AB>| {
                     let mut result: PositionBlock<AB> = *block;
-                    // In off mode we do not perform dummy accesses, so no need to check
                     result.data[address_within_block] = callback(&block.data[address_within_block]);
                     result
                 };

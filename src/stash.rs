@@ -499,6 +499,10 @@ impl<V: OramBlock> ObliviousStash<V> {
     ) -> Result<(), OramError> {
         debug_assert!(positions.is_sorted_by_key(cmp::Reverse));
 
+        // FIXME: Currently the stash does not support increasing the batch size (that is, using a larger batch after
+        // using a smaller one) - this in can cause real blocks to get overwritten with the newly fetched path.
+        assert!(usize::try_from(self.path_size)? * positions.len() < self.prefix_last_written_to_physical_memory);
+
         // This is hacky, but deepest_common_ancestor called with an argument equal to 0 will return 0,
         // so we will correctly load from the root in the fist iteration.
         let mut prev_position = 0;

@@ -1,0 +1,60 @@
+use std::time::Instant;
+
+use oram::hashset::OramHashSet;
+use oram::Oram;
+use rand::{distributions::Standard, rngs::OsRng, CryptoRng, Rng, RngCore};
+
+const ARRAY_SIZE: u64 = 4096;
+
+fn benchmark_lookups<R: RngCore + CryptoRng>(oram_hash_set: &mut OramHashSet<u64>, rng: &mut R) {
+    for _ in 0..20 {
+        let search_val = rng.gen::<u64>();
+
+        let start = Instant::now();
+
+        let found = oram_hash_set.contains(search_val, rng).unwrap();
+
+        let duration = start.elapsed();
+
+        println!("Got {:?} in {:?}", found, duration);
+    }
+}
+
+fn main() {
+    let mut rng = OsRng;
+
+    let mut oram_hash_set = OramHashSet::<u64>::new(ARRAY_SIZE, &mut rng).unwrap();
+
+    let values = (&mut rng)
+        .sample_iter(Standard)
+        .take((ARRAY_SIZE / 4) as usize)
+        .collect::<Vec<u64>>();
+
+    let start = Instant::now();
+
+    for value in &values {
+        oram_hash_set.insert(*value, &mut rng).unwrap();
+    }
+
+    let duration = start.elapsed();
+
+    println!("Initialized ORAM hashset in {:?}", duration);
+
+    println!("ORAM on:");
+
+    benchmark_lookups(&mut oram_hash_set, &mut rng);
+
+    println!("ORAM off:");
+
+    oram_hash_set.array.turn_off().unwrap();
+
+    benchmark_lookups(&mut oram_hash_set, &mut rng);
+
+    let start = Instant::now();
+
+    oram_hash_set.array.turn_on(&mut rng).unwrap();
+
+    let duration = start.elapsed();
+
+    println!("Turned on in {:?}", duration);
+}

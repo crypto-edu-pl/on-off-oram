@@ -105,6 +105,9 @@ pub(crate) mod stash;
 mod test_utils;
 pub(crate) mod utils;
 
+/// An oblivious hashset that uses ORAM for the underlying storage
+pub mod hashset;
+
 pub use crate::bucket::BlockValue;
 pub use crate::path_oram::DefaultOram;
 pub use crate::path_oram::PathOram;

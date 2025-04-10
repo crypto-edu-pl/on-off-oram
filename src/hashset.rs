@@ -1,24 +1,23 @@
-use std::{
-    hash::{BuildHasher, Hash, RandomState},
-    time::Instant,
-};
+use std::hash::{BuildHasher, Hash, RandomState};
 
-use oram::{DefaultOram, Oram, OramBlock, OramError};
-use rand::{distributions::Standard, rngs::OsRng, CryptoRng, Rng, RngCore};
+use crate::{DefaultOram, Oram, OramBlock, OramError};
+use rand::{CryptoRng, Rng};
 use subtle::{Choice, ConditionallySelectable, ConstantTimeEq};
 
-const ARRAY_SIZE: u64 = 4096;
-
-trait OramHashSetData: OramBlock + Hash + ConstantTimeEq {}
+/// Properties required from data stored in the hashset
+pub trait OramHashSetData: OramBlock + Hash + ConstantTimeEq {}
 impl<V: OramBlock + Hash + ConstantTimeEq> OramHashSetData for V {}
 
-struct OramHashSet<V: OramHashSetData> {
-    array: DefaultOram<OramHashSetEntry<V>>,
+/// The hashset
+pub struct OramHashSet<V: OramHashSetData> {
+    /// The underlying data
+    pub array: DefaultOram<OramHashSetEntry<V>>,
     hash_builder: RandomState,
 }
 
+/// A hashset entry
 #[derive(Clone, Copy, Debug, PartialEq)]
-struct OramHashSetEntry<V: OramHashSetData> {
+pub struct OramHashSetEntry<V: OramHashSetData> {
     data: V,
     tag: u8,
 }
@@ -46,14 +45,16 @@ impl<V: OramHashSetData> OramHashSet<V> {
     const GROUP_WIDTH: u64 = 2;
     const N_CHECKED_GROUPS: u64 = 3;
 
-    fn new<R: Rng + CryptoRng>(capacity: u64, rng: &mut R) -> Result<Self, OramError> {
+    /// Create new hashset
+    pub fn new<R: Rng + CryptoRng>(capacity: u64, rng: &mut R) -> Result<Self, OramError> {
         Ok(OramHashSet {
             array: DefaultOram::<OramHashSetEntry<V>>::new(capacity, rng)?,
             hash_builder: RandomState::new(),
         })
     }
 
-    fn insert<R: Rng + CryptoRng>(&mut self, value: V, rng: &mut R) -> Result<(), OramError> {
+    /// Insert an element
+    pub fn insert<R: Rng + CryptoRng>(&mut self, value: V, rng: &mut R) -> Result<(), OramError> {
         let hash = self.hash_builder.hash_one(value);
         let capacity = self.array.block_capacity()?;
         let mut slot_index = hash % capacity;
@@ -103,7 +104,12 @@ impl<V: OramHashSetData> OramHashSet<V> {
         Ok(())
     }
 
-    fn contains<R: Rng + CryptoRng>(&mut self, value: V, rng: &mut R) -> Result<bool, OramError> {
+    /// Look up an element
+    pub fn contains<R: Rng + CryptoRng>(
+        &mut self,
+        value: V,
+        rng: &mut R,
+    ) -> Result<bool, OramError> {
         let hash = self.hash_builder.hash_one(value);
         let capacity = self.array.block_capacity()?;
         let mut slot_index = hash % capacity;
@@ -133,57 +139,4 @@ impl<V: OramHashSetData> OramHashSet<V> {
 
         Ok(found.into())
     }
-}
-
-fn benchmark_lookups<R: RngCore + CryptoRng>(oram_hash_set: &mut OramHashSet<u64>, rng: &mut R) {
-    for _ in 0..20 {
-        let search_val = rng.gen::<u64>();
-
-        let start = Instant::now();
-
-        let found = oram_hash_set.contains(search_val, rng).unwrap();
-
-        let duration = start.elapsed();
-
-        println!("Got {:?} in {:?}", found, duration);
-    }
-}
-
-fn main() {
-    let mut rng = OsRng;
-
-    let mut oram_hash_set = OramHashSet::<u64>::new(ARRAY_SIZE, &mut rng).unwrap();
-
-    let values = (&mut rng)
-        .sample_iter(Standard)
-        .take((ARRAY_SIZE / 4) as usize)
-        .collect::<Vec<u64>>();
-
-    let start = Instant::now();
-
-    for value in &values {
-        oram_hash_set.insert(*value, &mut rng).unwrap();
-    }
-
-    let duration = start.elapsed();
-
-    println!("Initialized ORAM hashset in {:?}", duration);
-
-    println!("ORAM on:");
-
-    benchmark_lookups(&mut oram_hash_set, &mut rng);
-
-    println!("ORAM off:");
-
-    oram_hash_set.array.turn_off().unwrap();
-
-    benchmark_lookups(&mut oram_hash_set, &mut rng);
-
-    let start = Instant::now();
-
-    oram_hash_set.array.turn_on(&mut rng).unwrap();
-
-    let duration = start.elapsed();
-
-    println!("Turned on in {:?}", duration);
 }

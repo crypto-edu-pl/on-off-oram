@@ -1,18 +1,27 @@
-use std::{char::MAX, time::Instant};
+use std::collections::HashSet;
+use std::time::Instant;
 
 use log::LevelFilter;
-use oram::Oram;
 use oram::{hashset::OramHashSet, OramBlock};
-use rand::{distributions::Standard, rngs::OsRng, CryptoRng, Rng, RngCore};
+use oram::{Oram, OramError};
+use rand::{rngs::OsRng, CryptoRng, RngCore};
 use simplelog::SimpleLogger;
 use subtle::{Choice, ConditionallySelectable, ConstantTimeEq};
 
-const N_DICT_WORDS: u64 = 82765;
-const MAX_WORD_SIZE: usize = 28;
+const N_DICT_WORDS: u64 = 142;
+const MAX_WORD_SIZE: usize = 11;
 const HASHSET_CAPACITY: u64 = (N_DICT_WORDS * 4).next_power_of_two();
 
-#[derive(Default, Copy, Clone, PartialEq, Debug, Hash)]
+#[derive(Default, Copy, Clone, PartialEq, Eq, Debug, Hash)]
 struct DictEntry([u8; MAX_WORD_SIZE]);
+
+impl From<String> for DictEntry {
+    fn from(value: String) -> Self {
+        let mut result = Self::default();
+        result.0[..value.len()].copy_from_slice(value.as_bytes());
+        result
+    }
+}
 
 impl OramBlock for DictEntry {}
 
@@ -36,8 +45,51 @@ impl ConstantTimeEq for DictEntry {
     }
 }
 
+fn get_words(path: &str) -> Vec<String> {
+    let content = String::from_utf8(std::fs::read(path).unwrap()).unwrap();
+    content
+        .replace(|c: char| c.is_ascii_punctuation() && c != '\'', "")
+        .to_ascii_lowercase()
+        .split_ascii_whitespace()
+        .map(Into::into)
+        .collect()
+}
+
+fn spellcheck<R: RngCore + CryptoRng>(
+    text: &[DictEntry],
+    dictionary: &mut OramHashSet<DictEntry>,
+    rng: &mut R,
+) -> Result<Vec<bool>, OramError> {
+    let mut result = Vec::with_capacity(text.len());
+
+    let start = Instant::now();
+
+    for word in text {
+        result.push(dictionary.contains(*word, rng)?);
+    }
+
+    let duration = start.elapsed();
+
+    println!("Checked in {:?}", duration);
+
+    Ok(result)
+}
+
 fn main() {
     SimpleLogger::init(LevelFilter::Trace, simplelog::Config::default()).unwrap();
+
+    let grasshopper = get_words("data/grasshopper.txt")
+        .into_iter()
+        .map(DictEntry::from)
+        .collect::<Vec<_>>();
+    let hare_and_tortoise = get_words("data/hare_and_tortoise.txt")
+        .into_iter()
+        .map(DictEntry::from)
+        .collect::<Vec<_>>();
+
+    let mut dictionary_entries = HashSet::new();
+    dictionary_entries.extend(&grasshopper);
+    dictionary_entries.extend(&hare_and_tortoise);
 
     let mut rng = OsRng;
 
@@ -51,36 +103,31 @@ fn main() {
 
     // Prepare the dictionary content
 
-    let wordlist = std::fs::read("data/frequency_dictionary_en_82_765.txt").unwrap();
-
     let start = Instant::now();
 
-    for word in wordlist.split(|c| *c == b'\n') {
-        let mut entry = DictEntry::default();
-        entry.0[..word.len()].copy_from_slice(word);
+    for entry in dictionary_entries {
         dictionary.insert(entry, &mut rng).unwrap();
-        println!("{word:?}");
     }
 
     let duration = start.elapsed();
 
     println!("Prepared dictionary in {:?}", duration);
 
-    // println!("ORAM on:");
+    println!("ORAM on:");
 
-    // benchmark_lookups(&mut oram_hash_set, &mut rng);
+    spellcheck(&grasshopper, &mut dictionary, &mut rng).unwrap();
 
-    // println!("ORAM off:");
+    println!("ORAM off:");
 
-    // oram_hash_set.array.turn_off().unwrap();
+    dictionary.array.turn_off().unwrap();
 
-    // benchmark_lookups(&mut oram_hash_set, &mut rng);
+    spellcheck(&grasshopper, &mut dictionary, &mut rng).unwrap();
 
-    // let start = Instant::now();
+    let start = Instant::now();
 
-    // oram_hash_set.array.turn_on(&mut rng).unwrap();
+    dictionary.array.turn_on(&mut rng).unwrap();
 
-    // let duration = start.elapsed();
+    let duration = start.elapsed();
 
-    // println!("Turned on in {:?}", duration);
+    println!("Turned on in {:?}", duration);
 }

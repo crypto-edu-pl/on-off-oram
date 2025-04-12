@@ -41,7 +41,7 @@ pub const DEFAULT_POSITIONS_PER_BLOCK: BlockSize = 8;
 pub const DEFAULT_STASH_OVERFLOW_SIZE: StashSize = 40;
 
 /// The cutoff size in blocks below which `DefaultOram` is simply a linear time ORAM.
-pub const LINEAR_TIME_ORAM_CUTOFF: RecursionCutoff = 1 << 10;
+pub const LINEAR_TIME_ORAM_CUTOFF: RecursionCutoff = 1 << 6;
 
 /// Default max batch size.
 pub const DEFAULT_MAX_BATCH_SIZE: u64 = 1;
@@ -616,6 +616,7 @@ impl<V: OramBlock, const Z: BucketSize, const AB: BlockSize> Oram for PathOram<V
     }
 
     fn turn_on_without_evicting(&mut self) -> Result<(), OramError> {
+        self.mode = OramMode::On;
         self.position_map.turn_on_without_evicting()
     }
 

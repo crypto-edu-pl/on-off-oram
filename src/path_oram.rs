@@ -19,16 +19,16 @@ use crate::{
     bucket::{BlockMetadata, Bucket, PathOramBlock, PositionBlock},
     linear_time_oram::LinearTimeOram,
     stash::StashEntry,
-    utils::{bitonic_sort_by_keys, CompleteBinaryTreeIndex, TreeHeight},
+    utils::{bitonic_sort_by_keys, CompleteBinaryTreeIndex, TreeHeight, TreeIndex},
     Address, BlockSize, BucketSize, Oram, OramBlock, OramError, OramMode, RecursionCutoff,
     StashSize,
 };
 use rand::{CryptoRng, Rng, RngCore};
-use subtle::{ConditionallySelectable, ConstantTimeEq};
+use subtle::{ConditionallySelectable, ConstantTimeEq, ConstantTimeLess};
 
 /// The default cutoff size in blocks
 /// below which `PathOram` uses a linear position map instead of a recursive one.
-pub const DEFAULT_RECURSION_CUTOFF: RecursionCutoff = 1 << 14;
+pub const DEFAULT_RECURSION_CUTOFF: RecursionCutoff = 1 << 6;
 
 /// The parameter "Z" from the Path ORAM literature that sets the number of blocks per bucket; typical values are 3 or 4.
 /// Here we adopt the more conservative setting of 4.
@@ -271,7 +271,7 @@ impl<V: OramBlock, const Z: BucketSize, const AB: BlockSize> PathOram<V, Z, AB> 
         let height: u64 = (block_capacity.ilog2() - 1).into();
 
         let path_size = u64::try_from(Z)? * (height + 1);
-        let stash = ObliviousStash::new(path_size, overflow_size, max_batch_size)?;
+        let stash = ObliviousStash::new(path_size, overflow_size, max_batch_size, block_capacity)?;
 
         // physical_memory holds `block_capacity` buckets, each storing up to Z blocks.
         // The number of leaves is `block_capacity` / 2, which the original Path ORAM paper's experiments
@@ -281,18 +281,8 @@ impl<V: OramBlock, const Z: BucketSize, const AB: BlockSize> PathOram<V, Z, AB> 
 
         // Initialize a new position map,
         // and initialize its entries to random leaf indices.
-        //
-        // Add extra entries at the end of the position map that can be written when we are updating the exact
-        // positions of blocks and we encounter a dummy block (since dummy blocks do not have position map entries).
-        let position_map_capacity = if USE_BATCHING_IN_POSITION_MAP {
-            // We need only stash.entries.len() - 1 extra position map entries, since there is always at least one real
-            // address being accessed
-            block_capacity + u64::try_from(stash.entries.len())? - 1
-        } else {
-            block_capacity + 1
-        };
         let mut position_map = PositionMap::new(
-            position_map_capacity,
+            block_capacity,
             rng,
             overflow_size,
             recursion_cutoff,
@@ -342,8 +332,8 @@ impl<V: OramBlock, const Z: BucketSize, const AB: BlockSize> PathOram<V, Z, AB> 
         // Create a batch of position map updates that contains exactly stash_entries.len()
         // updates (each for a different address).
 
-        let mut addresses = Vec::with_capacity(2 * stash_entries.len() - 1);
-        let mut metadatas = Vec::with_capacity(2 * stash_entries.len() - 1);
+        let mut addresses = Vec::with_capacity(2 * stash_entries.len());
+        let mut metadatas = Vec::with_capacity(2 * stash_entries.len());
 
         // Put the updates resulting from the stash entries in the update array.
         for (i, entry) in stash_entries.iter().enumerate() {
@@ -361,7 +351,7 @@ impl<V: OramBlock, const Z: BucketSize, const AB: BlockSize> PathOram<V, Z, AB> 
             metadatas.push(metadata);
         }
 
-        // Put dummy updates for addresses {self.block_capacity(), ..., self.block_capacity() + stash_entries.len() - 2}
+        // Put dummy updates for addresses {self.block_capacity(), ..., self.block_capacity() + stash_entries.len() - 1}
         // in the update array. This way, we will be guaranteed to be able to choose at least stash_entries.len() valid updates.
         let block_capacity = self.block_capacity()?;
         for i in 0..stash_entries.len() {
@@ -400,25 +390,26 @@ impl<V: OramBlock, const Z: BucketSize, const AB: BlockSize> Oram for PathOram<V
         callback: F,
         rng: &mut R,
     ) -> Result<V, OramError> {
-        // This operation is not constant-time, but only leaks whether the ORAM index is well-formed or not.
-        if address > self.block_capacity()? {
-            return Err(OramError::AddressOutOfBoundsError {
-                attempted: address,
-                capacity: self.block_capacity()?,
-            });
-        }
-
         match self.mode() {
             OramMode::On => {
+                // If the address is out of bounds (>= block_capacity), the access will return the dummy value and update nothing
+                let is_real_access = address.ct_lt(&self.block_capacity()?);
+
                 // Get the position of the target block (with address `address`),
                 // and assign a fresh random position to the block
                 let new_position = CompleteBinaryTreeIndex::random_leaf(self.height, rng)?;
                 let metadata = self.position_map.read(address, rng)?;
 
-                assert!(metadata.assigned_leaf.is_leaf(self.height));
+                // If this is a dummy access, we can use new_position as the path to read,
+                // since we won't assign it to anything anyway
+                let path_to_evict = TreeIndex::conditional_select(
+                    &new_position,
+                    &metadata.assigned_leaf,
+                    is_real_access,
+                );
 
                 self.stash
-                    .read_from_path(&mut self.physical_memory, metadata.assigned_leaf)?;
+                    .read_from_path(&mut self.physical_memory, path_to_evict)?;
 
                 // Scan the stash for the target block, read its value into `result`,
                 // and overwrite its position (and possibly its value).
@@ -427,10 +418,19 @@ impl<V: OramBlock, const Z: BucketSize, const AB: BlockSize> Oram for PathOram<V
                 // Evict blocks from the stash into the path that was just read,
                 // replacing them with dummy blocks.
                 self.stash
-                    .write_to_path(&mut self.physical_memory, metadata.assigned_leaf)?;
+                    .write_to_path(&mut self.physical_memory, path_to_evict)?;
 
                 if USE_BATCHING_IN_POSITION_MAP {
-                    self.batch_update_position_map(0..self.stash.entries.len(), rng)?;
+                    // Update the position map. Limit the batch size so that it fits in the position map's stash
+                    for batch_begin in
+                        (0..self.stash.entries.len()).step_by(self.stash.path_size.try_into()?)
+                    {
+                        let batch_end = min(
+                            batch_begin + usize::try_from(self.stash.path_size)?,
+                            self.stash.entries.len(),
+                        );
+                        self.batch_update_position_map(batch_begin..batch_end, rng)?;
+                    }
                 } else {
                     for (i, entry) in self.stash.entries.iter().enumerate() {
                         let is_in_tree = entry.exact_bucket.ct_ne(&BlockMetadata::NOT_IN_TREE);
@@ -465,6 +465,14 @@ impl<V: OramBlock, const Z: BucketSize, const AB: BlockSize> Oram for PathOram<V
                 result
             }
             OramMode::Off => {
+                // In off mode we do not perform dummy accesses
+                if address >= self.block_capacity()? {
+                    return Err(OramError::AddressOutOfBoundsError {
+                        attempted: address,
+                        capacity: self.block_capacity()?,
+                    });
+                }
+
                 // We are in off mode so we don't care about oblivious operations.
 
                 // Cache the block position - we have log N levels of recursion, so without caching
@@ -533,7 +541,8 @@ impl<V: OramBlock, const Z: BucketSize, const AB: BlockSize> Oram for PathOram<V
                     self.height,
                     rng,
                 )?;
-                let mut assigned_leaves = self
+                let block_capacity = self.block_capacity()?;
+                let mut paths_to_evict = self
                     .position_map
                     .batch_read(
                         &callbacks
@@ -543,21 +552,25 @@ impl<V: OramBlock, const Z: BucketSize, const AB: BlockSize> Oram for PathOram<V
                         rng,
                     )?
                     .into_iter()
-                    .map(|metadata| metadata.assigned_leaf)
+                    .enumerate()
+                    .map(|(i, metadata)| {
+                        let is_real_access = callbacks[i].0.ct_lt(&block_capacity);
+                        TreeIndex::conditional_select(
+                            &new_positions[i],
+                            &metadata.assigned_leaf,
+                            is_real_access,
+                        )
+                    })
                     .collect::<Vec<_>>();
-                assigned_leaves.sort_by_key(|x| cmp::Reverse(*x));
-
-                for assigned_leaf in &assigned_leaves {
-                    assert!(assigned_leaf.is_leaf(self.height));
-                }
+                paths_to_evict.sort_by_key(|x| cmp::Reverse(*x));
 
                 self.stash
-                    .read_from_paths(&mut self.physical_memory, &assigned_leaves)?;
+                    .read_from_paths(&mut self.physical_memory, &paths_to_evict)?;
 
                 let result = self.stash.batch_access(&new_positions, callbacks)?;
 
                 self.stash
-                    .write_to_paths(&mut self.physical_memory, &assigned_leaves)?;
+                    .write_to_paths(&mut self.physical_memory, &paths_to_evict)?;
 
                 // Update the position map. Limit the batch size so that it fits in the position map's stash
                 for batch_begin in

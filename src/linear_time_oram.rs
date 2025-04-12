@@ -9,7 +9,7 @@
 
 use crate::{Address, Oram, OramBlock, OramError, OramMode};
 use rand::{CryptoRng, RngCore};
-use subtle::{ConstantTimeEq, ConstantTimeLess};
+use subtle::ConstantTimeEq;
 
 /// A simple ORAM that, for each access, ensures obliviousness by making a complete pass over the database,
 /// reading and writing each memory location.
@@ -44,18 +44,10 @@ impl<V: OramBlock> Oram for LinearTimeOram<V> {
         callback: F,
         _: &mut R,
     ) -> Result<V, OramError> {
-        let index_in_bounds: bool = index.ct_lt(&self.block_capacity()?).into();
-
-        // This operation is not constant-time, but only leaks whether the ORAM index is well-formed or not.
-        if !index_in_bounds {
-            return Err(OramError::AddressOutOfBoundsError {
-                attempted: index,
-                capacity: self.block_capacity()?,
-            });
-        }
-
         match self.mode() {
             OramMode::On => {
+                // If the index is out of bounds (>= block_capacity), the access will return the dummy value and update nothing
+
                 // This is a dummy value which will always be overwritten.
                 let mut result = V::default();
 
@@ -74,6 +66,14 @@ impl<V: OramBlock> Oram for LinearTimeOram<V> {
                 Ok(result)
             }
             OramMode::Off => {
+                // In off mode we do not perform dummy accesses
+                if index >= self.block_capacity()? {
+                    return Err(OramError::AddressOutOfBoundsError {
+                        attempted: index,
+                        capacity: self.block_capacity()?,
+                    });
+                }
+
                 let index_usize = usize::try_from(index)?;
 
                 let result = self.physical_memory[index_usize];

@@ -26,6 +26,7 @@ pub struct ObliviousStash<V: OramBlock> {
     pub path_size: StashSize,
     max_batch_size: StashSize,
     prefix_last_read_from_physical_memory: usize,
+    oram_block_capacity: u64,
 }
 
 #[derive(Debug, Clone, Copy)]
@@ -71,6 +72,7 @@ impl<V: OramBlock> ObliviousStash<V> {
         path_size: StashSize,
         overflow_size: StashSize,
         max_batch_size: StashSize,
+        oram_block_capacity: u64,
     ) -> Result<Self, OramError> {
         // Make the stash larger - path_size * path_size - so that it can fit the paths of a batch
         // of size path_size (this means that on a single Path ORAM access we can update the position map
@@ -83,6 +85,7 @@ impl<V: OramBlock> ObliviousStash<V> {
             path_size,
             max_batch_size,
             prefix_last_read_from_physical_memory: 0,
+            oram_block_capacity,
         })
     }
 
@@ -392,13 +395,17 @@ impl<V: OramBlock> ObliviousStash<V> {
         let reserved_block_index = self.prefix_last_read_from_physical_memory;
         let reserved_entry = &mut self.entries[reserved_block_index];
         assert!(bool::from(reserved_entry.block.ct_is_dummy()));
+
+        // Do not initialize the block if this is a dummy access
+        let is_real_access = address.ct_lt(&self.oram_block_capacity);
+
         reserved_entry.block.conditional_assign(
             &PathOramBlock {
                 value: value_callback(&result),
                 address,
                 position: new_position,
             },
-            !found,
+            !found & is_real_access,
         );
 
         // Return the value of the found block (or the default value, if no block was found)
@@ -425,13 +432,16 @@ impl<V: OramBlock> ObliviousStash<V> {
             let reserved_block_index = self.prefix_last_read_from_physical_memory + i;
             let reserved_entry = &mut self.entries[reserved_block_index];
             assert!(bool::from(reserved_entry.block.ct_is_dummy()));
+
+            let is_real_access = address.ct_lt(&self.oram_block_capacity);
+
             reserved_entry.block.conditional_assign(
                 &PathOramBlock {
                     value: value_callback(&result),
                     address: *address,
                     position: *new_position,
                 },
-                !found,
+                !found & is_real_access,
             );
 
             results.push(result);
@@ -520,13 +530,6 @@ impl<V: OramBlock> ObliviousStash<V> {
         positions: &[TreeIndex],
     ) -> Result<(), OramError> {
         debug_assert!(positions.is_sorted_by_key(cmp::Reverse));
-
-        // FIXME: Currently the stash does not support increasing the batch size (that is, using a larger batch after
-        // using a smaller one) - this in can cause real blocks to get overwritten with the newly fetched path.
-        assert!(
-            usize::try_from(self.path_size)? * positions.len()
-                < self.prefix_last_read_from_physical_memory
-        );
 
         // This is hacky, but deepest_common_ancestor called with an argument equal to 0 will return 0,
         // so we will correctly load from the root in the fist iteration.

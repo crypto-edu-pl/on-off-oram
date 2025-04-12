@@ -563,6 +563,7 @@ impl<V: OramBlock, const Z: BucketSize, const AB: BlockSize> Oram for PathOram<V
                     })
                     .collect::<Vec<_>>();
                 paths_to_evict.sort_by_key(|x| cmp::Reverse(*x));
+                paths_to_evict.dedup();
 
                 self.stash
                     .read_from_paths(&mut self.physical_memory, &paths_to_evict)?;

@@ -1,8 +1,10 @@
 use std::time::Instant;
 
+use log::LevelFilter;
 use oram::hashset::OramHashSet;
 use oram::Oram;
 use rand::{distributions::Standard, rngs::OsRng, CryptoRng, Rng, RngCore};
+use simplelog::SimpleLogger;
 
 const ARRAY_SIZE: u64 = 4096;
 
@@ -21,6 +23,8 @@ fn benchmark_lookups<R: RngCore + CryptoRng>(oram_hash_set: &mut OramHashSet<u64
 }
 
 fn main() {
+    SimpleLogger::init(LevelFilter::Trace, simplelog::Config::default()).unwrap();
+
     let mut rng = OsRng;
 
     let mut oram_hash_set = OramHashSet::<u64>::new(ARRAY_SIZE, &mut rng).unwrap();

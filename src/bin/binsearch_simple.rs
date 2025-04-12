@@ -3,7 +3,9 @@ use std::{
     time::Instant,
 };
 
+use log::LevelFilter;
 use rand::{distributions::Standard, rngs::OsRng, CryptoRng, Rng, RngCore};
+use simplelog::SimpleLogger;
 use static_assertions::const_assert;
 
 use oram::{path_oram::LINEAR_TIME_ORAM_CUTOFF, Address, DefaultOram, Oram};
@@ -40,6 +42,8 @@ fn benchmark_searches<O: Oram<V = u64>, R: RngCore + CryptoRng>(oram_array: &mut
 }
 
 fn main() {
+    SimpleLogger::init(LevelFilter::Trace, simplelog::Config::default()).unwrap();
+
     let mut rng = OsRng;
 
     let mut oram_array = DefaultOram::<u64>::new(ARRAY_SIZE, &mut rng).unwrap();

@@ -1,8 +1,10 @@
 use std::{char::MAX, time::Instant};
 
+use log::LevelFilter;
 use oram::Oram;
 use oram::{hashset::OramHashSet, OramBlock};
 use rand::{distributions::Standard, rngs::OsRng, CryptoRng, Rng, RngCore};
+use simplelog::SimpleLogger;
 use subtle::{Choice, ConditionallySelectable, ConstantTimeEq};
 
 const N_DICT_WORDS: u64 = 82765;
@@ -35,6 +37,8 @@ impl ConstantTimeEq for DictEntry {
 }
 
 fn main() {
+    SimpleLogger::init(LevelFilter::Trace, simplelog::Config::default()).unwrap();
+
     let mut rng = OsRng;
 
     let start = Instant::now();

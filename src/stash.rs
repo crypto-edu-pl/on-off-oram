@@ -78,7 +78,7 @@ impl<V: OramBlock> ObliviousStash<V> {
         // of size path_size (this means that on a single Path ORAM access we can update the position map
         // in a single top-level batch)
         // TODO think if other stash and batch sizes make more sense
-        let num_stash_blocks: usize = (path_size * max_batch_size + overflow_size).try_into()?;
+        let num_stash_blocks: usize = ((path_size + overflow_size) * max_batch_size).try_into()?;
 
         Ok(Self {
             entries: vec![StashEntry::<V>::dummy(); num_stash_blocks],
@@ -350,8 +350,9 @@ impl<V: OramBlock> ObliviousStash<V> {
                 );
                 bucket_assignments.resize(
                     bucket_assignments.len() + STASH_GROWTH_INCREMENT,
-                    TreeIndex::MAX,
+                    TreeIndex::MAX - 1,
                 );
+                n_dummy_blocks += u64::try_from(STASH_GROWTH_INCREMENT)?;
 
                 log::warn!(
                     "Stash overflow occurred. Stash resized to {} blocks.",

@@ -8,23 +8,30 @@
 //! An implementation of Path ORAM.
 
 use std::{
-    cmp::{self, min},
+    cmp,
     collections::{hash_map, HashMap},
     mem,
-    slice::SliceIndex,
 };
+
+#[cfg(feature = "exact_locations")]
+use std::{cmp::min, slice::SliceIndex};
+
+use rand::{CryptoRng, Rng, RngCore};
+
+#[cfg(feature = "exact_locations")]
+use subtle::{ConditionallySelectable, ConstantTimeEq, ConstantTimeLess};
 
 use super::{position_map::PositionMap, stash::ObliviousStash};
 use crate::{
     bucket::{BlockMetadata, Bucket, PathOramBlock, PositionBlock},
     linear_time_oram::LinearTimeOram,
-    stash::StashEntry,
-    utils::{CompleteBinaryTreeIndex, TreeHeight, TreeIndex},
+    utils::{CompleteBinaryTreeIndex, TreeHeight},
     Address, BlockSize, BucketSize, Oram, OramBlock, OramError, OramMode, RecursionCutoff,
     StashSize,
 };
-use rand::{CryptoRng, Rng, RngCore};
-use subtle::{ConditionallySelectable, ConstantTimeEq, ConstantTimeLess};
+
+#[cfg(feature = "exact_locations")]
+use crate::{stash::StashEntry, utils::TreeIndex};
 
 /// The default cutoff size in blocks
 /// below which `PathOram` uses a linear position map instead of a recursive one.
@@ -46,6 +53,7 @@ pub const LINEAR_TIME_ORAM_CUTOFF: RecursionCutoff = 1 << 6;
 /// Default max batch size.
 pub const DEFAULT_MAX_BATCH_SIZE: u64 = 1;
 
+#[cfg(feature = "exact_locations")]
 const USE_BATCHING_IN_POSITION_MAP: bool = true;
 
 /// A doubly oblivious Path ORAM.
@@ -286,6 +294,7 @@ impl<V: OramBlock, const Z: BucketSize, const AB: BlockSize> PathOram<V, Z, AB> 
             rng,
             overflow_size,
             recursion_cutoff,
+            #[cfg(feature = "exact_locations")]
             USE_BATCHING_IN_POSITION_MAP,
         )?;
 
@@ -302,8 +311,11 @@ impl<V: OramBlock, const Z: BucketSize, const AB: BlockSize> PathOram<V, Z, AB> 
             let mut data = [BlockMetadata::default(); AB];
             for metadata in &mut data {
                 metadata.assigned_leaf = rng.gen_range(first_leaf_index..=last_leaf_index);
-                metadata.exact_bucket = BlockMetadata::NOT_IN_TREE;
-                metadata.exact_offset = BlockMetadata::UNINITIALIZED;
+                #[cfg(feature = "exact_locations")]
+                {
+                    metadata.exact_bucket = BlockMetadata::NOT_IN_TREE;
+                    metadata.exact_offset = BlockMetadata::UNINITIALIZED;
+                }
             }
             let position_block = PositionBlock { data };
             position_map.write_position_block(block_index * ab_address, position_block, rng)?;
@@ -319,6 +331,7 @@ impl<V: OramBlock, const Z: BucketSize, const AB: BlockSize> PathOram<V, Z, AB> 
         })
     }
 
+    #[cfg(feature = "exact_locations")]
     fn batch_update_position_map<
         R: Rng + CryptoRng,
         RangeT: SliceIndex<[StashEntry<V>], Output = [StashEntry<V>]>,
@@ -381,21 +394,35 @@ impl<V: OramBlock, const Z: BucketSize, const AB: BlockSize> Oram for PathOram<V
     ) -> Result<V, OramError> {
         match self.mode() {
             OramMode::On => {
-                // If the address is out of bounds (>= block_capacity), the access will return the dummy value and update nothing
-                let is_real_access = address.ct_lt(&self.block_capacity()?);
-
-                // Get the position of the target block (with address `address`),
-                // and assign a fresh random position to the block
                 let new_position = CompleteBinaryTreeIndex::random_leaf(self.height, rng)?;
-                let metadata = self.position_map.read(address, rng)?;
 
-                // If this is a dummy access, we can use new_position as the path to read,
-                // since we won't assign it to anything anyway
-                let path_to_evict = TreeIndex::conditional_select(
-                    &new_position,
-                    &metadata.assigned_leaf,
-                    is_real_access,
-                );
+                let path_to_evict = {
+                    #[cfg(feature = "exact_locations")]
+                    {
+                        // If the address is out of bounds (>= block_capacity), the access will return the dummy value and update nothing
+                        let is_real_access = address.ct_lt(&self.block_capacity()?);
+
+                        let metadata = self.position_map.read(address, rng)?;
+
+                        // If this is a dummy access, we can use new_position as the path to read,
+                        // since we won't assign it to anything anyway
+                        TreeIndex::conditional_select(
+                            &new_position,
+                            &metadata.assigned_leaf,
+                            is_real_access,
+                        )
+                    }
+
+                    #[cfg(not(feature = "exact_locations"))]
+                    {
+                        let new_metadata = BlockMetadata {
+                            assigned_leaf: new_position,
+                        };
+                        self.position_map
+                            .write(address, new_metadata, rng)?
+                            .assigned_leaf
+                    }
+                };
 
                 self.stash
                     .read_from_path(&mut self.physical_memory, path_to_evict)?;
@@ -409,6 +436,7 @@ impl<V: OramBlock, const Z: BucketSize, const AB: BlockSize> Oram for PathOram<V
                 self.stash
                     .write_to_path(&mut self.physical_memory, path_to_evict)?;
 
+                #[cfg(feature = "exact_locations")]
                 if USE_BATCHING_IN_POSITION_MAP {
                     // Update the position map. Limit the batch size so that it fits in the position map's stash
                     for batch_begin in
@@ -465,33 +493,70 @@ impl<V: OramBlock, const Z: BucketSize, const AB: BlockSize> Oram for PathOram<V
                 // We are in off mode so we don't care about oblivious operations.
 
                 // Cache the block position - we have log N levels of recursion, so without caching
-                // we still have O(log N) overhead on every access
+                // we still have O(log N) overhead on every access even if we store the exact block locations
                 let block_location = match self.blocks_accessed_in_off_mode.entry(address) {
                     hash_map::Entry::Occupied(occupied) => *occupied.get(),
                     hash_map::Entry::Vacant(vacant) => {
                         let metadata = self.position_map.read(address, rng)?;
 
-                        let block_location = match metadata {
-                            BlockMetadata {
-                                exact_bucket: BlockMetadata::NOT_IN_TREE,
-                                exact_offset: BlockMetadata::UNINITIALIZED,
-                                ..
-                            } => BlockLocation::Dummy,
-                            BlockMetadata {
-                                exact_bucket: BlockMetadata::NOT_IN_TREE,
-                                exact_offset,
-                                ..
-                            } => BlockLocation::Stash {
-                                offset: exact_offset.try_into()?,
-                            },
-                            BlockMetadata {
-                                exact_bucket,
-                                exact_offset,
-                                ..
-                            } => BlockLocation::OramTree {
-                                bucket: exact_bucket.try_into()?,
-                                offset: exact_offset.try_into()?,
-                            },
+                        let block_location = {
+                            #[cfg(feature = "exact_locations")]
+                            {
+                                match metadata {
+                                    BlockMetadata {
+                                        exact_bucket: BlockMetadata::NOT_IN_TREE,
+                                        exact_offset: BlockMetadata::UNINITIALIZED,
+                                        ..
+                                    } => BlockLocation::Dummy,
+                                    BlockMetadata {
+                                        exact_bucket: BlockMetadata::NOT_IN_TREE,
+                                        exact_offset,
+                                        ..
+                                    } => BlockLocation::Stash {
+                                        offset: exact_offset.try_into()?,
+                                    },
+                                    BlockMetadata {
+                                        exact_bucket,
+                                        exact_offset,
+                                        ..
+                                    } => BlockLocation::OramTree {
+                                        bucket: exact_bucket.try_into()?,
+                                        offset: exact_offset.try_into()?,
+                                    },
+                                }
+                            }
+
+                            #[cfg(not(feature = "exact_locations"))]
+                            {
+                                let mut location = BlockLocation::Dummy;
+                                let mut bucket_idx = usize::try_from(metadata.assigned_leaf)?;
+
+                                'buckets: while bucket_idx > 0 {
+                                    for (offset, block) in
+                                        self.physical_memory[bucket_idx].blocks.iter().enumerate()
+                                    {
+                                        if block.address == address {
+                                            location = BlockLocation::OramTree {
+                                                bucket: bucket_idx,
+                                                offset,
+                                            };
+                                            break 'buckets;
+                                        }
+                                    }
+                                    bucket_idx >>= 1;
+                                }
+
+                                if matches!(location, BlockLocation::Dummy) {
+                                    for (offset, entry) in self.stash.entries.iter().enumerate() {
+                                        if entry.block.address == address {
+                                            location = BlockLocation::Stash { offset };
+                                            break;
+                                        }
+                                    }
+                                }
+
+                                location
+                            }
                         };
 
                         *vacant.insert(block_location)
@@ -530,27 +595,50 @@ impl<V: OramBlock, const Z: BucketSize, const AB: BlockSize> Oram for PathOram<V
                     self.height,
                     rng,
                 )?;
-                let block_capacity = self.block_capacity()?;
-                let mut paths_to_evict = self
-                    .position_map
-                    .batch_read(
-                        &callbacks
-                            .iter()
-                            .map(|(address, _)| *address)
-                            .collect::<Vec<_>>(),
-                        rng,
-                    )?
-                    .into_iter()
-                    .enumerate()
-                    .map(|(i, metadata)| {
-                        let is_real_access = callbacks[i].0.ct_lt(&block_capacity);
-                        TreeIndex::conditional_select(
-                            &new_positions[i],
-                            &metadata.assigned_leaf,
-                            is_real_access,
-                        )
-                    })
-                    .collect::<Vec<_>>();
+
+                let mut paths_to_evict = {
+                    #[cfg(feature = "exact_locations")]
+                    {
+                        let block_capacity = self.block_capacity()?;
+                        self.position_map
+                            .batch_read(
+                                &callbacks
+                                    .iter()
+                                    .map(|(address, _)| *address)
+                                    .collect::<Vec<_>>(),
+                                rng,
+                            )?
+                            .into_iter()
+                            .enumerate()
+                            .map(|(i, metadata)| {
+                                let is_real_access = callbacks[i].0.ct_lt(&block_capacity);
+                                TreeIndex::conditional_select(
+                                    &new_positions[i],
+                                    &metadata.assigned_leaf,
+                                    is_real_access,
+                                )
+                            })
+                            .collect::<Vec<_>>()
+                    }
+
+                    #[cfg(not(feature = "exact_locations"))]
+                    {
+                        self.position_map
+                            .batch_write(
+                                &callbacks
+                                    .iter()
+                                    .map(|(address, _)| *address)
+                                    .zip(new_positions.iter().map(|new_position| BlockMetadata {
+                                        assigned_leaf: *new_position,
+                                    }))
+                                    .collect::<Vec<_>>(),
+                                rng,
+                            )?
+                            .into_iter()
+                            .map(|metadata| metadata.assigned_leaf)
+                            .collect::<Vec<_>>()
+                    }
+                };
                 paths_to_evict.sort_by_key(|x| cmp::Reverse(*x));
                 paths_to_evict.dedup();
 
@@ -562,6 +650,7 @@ impl<V: OramBlock, const Z: BucketSize, const AB: BlockSize> Oram for PathOram<V
                 self.stash
                     .write_to_paths(&mut self.physical_memory, &paths_to_evict)?;
 
+                #[cfg(feature = "exact_locations")]
                 // Update the position map. Limit the batch size so that it fits in the position map's stash
                 for batch_begin in
                     (0..self.stash.entries.len()).step_by(self.stash.path_size.try_into()?)

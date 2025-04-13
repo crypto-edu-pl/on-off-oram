@@ -131,9 +131,11 @@ pub struct PositionBlock<const B: BlockSize> {
 #[derive(Clone, Copy, PartialEq, Debug, Default)]
 pub struct BlockMetadata {
     pub assigned_leaf: TreeIndex,
+    #[cfg(feature = "exact_locations")]
     /// If the block is stored in the ORAM tree, equal to the index of its exact bucket.
     /// Otherwise (if the block is stored in the stash or is uninitialized and stored nowhere) equal to `Self::NO_BUCKET`.
     pub exact_bucket: TreeIndex,
+    #[cfg(feature = "exact_locations")]
     /// If the block is stored in the ORAM tree, equal to its offset within the bucket (in blocks).
     /// If the block is stored in the stash, equal to its offset within the stash (in blocks).
     /// If the block is uninitialized (and stored nowhere), equal to `Self::UNINITIALIZED`.
@@ -167,11 +169,15 @@ impl ConditionallySelectable for BlockMetadata {
     fn conditional_select(a: &Self, b: &Self, choice: Choice) -> Self {
         let assigned_leaf =
             TreeIndex::conditional_select(&a.assigned_leaf, &b.assigned_leaf, choice);
+        #[cfg(feature = "exact_locations")]
         let exact_bucket = TreeIndex::conditional_select(&a.exact_bucket, &b.exact_bucket, choice);
+        #[cfg(feature = "exact_locations")]
         let exact_offset = u64::conditional_select(&a.exact_offset, &b.exact_offset, choice);
         BlockMetadata {
             assigned_leaf,
+            #[cfg(feature = "exact_locations")]
             exact_bucket,
+            #[cfg(feature = "exact_locations")]
             exact_offset,
         }
     }
@@ -191,7 +197,9 @@ impl Distribution<BlockMetadata> for Standard {
     fn sample<R: rand::Rng + ?Sized>(&self, rng: &mut R) -> BlockMetadata {
         BlockMetadata {
             assigned_leaf: rng.gen(),
+            #[cfg(feature = "exact_locations")]
             exact_bucket: rng.gen(),
+            #[cfg(feature = "exact_locations")]
             exact_offset: rng.gen(),
         }
     }

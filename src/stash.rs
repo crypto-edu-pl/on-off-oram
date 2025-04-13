@@ -10,10 +10,13 @@
 use std::{cmp, vec};
 
 use crate::{
-    bucket::{BlockMetadata, Bucket, PathOramBlock},
+    bucket::{Bucket, PathOramBlock},
     utils::{bitonic_sort_by_keys, CompleteBinaryTreeIndex, TreeIndex},
     Address, BucketSize, OramBlock, OramError, StashSize,
 };
+
+#[cfg(feature = "exact_locations")]
+use crate::bucket::BlockMetadata;
 
 use subtle::{Choice, ConditionallySelectable, ConstantTimeEq, ConstantTimeLess};
 
@@ -32,17 +35,22 @@ pub struct ObliviousStash<V: OramBlock> {
 #[derive(Debug, Clone, Copy)]
 pub struct StashEntry<V: OramBlock> {
     pub block: PathOramBlock<V>,
+    #[cfg(feature = "exact_locations")]
     pub exact_bucket: TreeIndex,
+    #[cfg(feature = "exact_locations")]
     pub exact_offset: u64,
 }
 
 impl<V: OramBlock> StashEntry<V> {
+    #[cfg(feature = "exact_locations")]
     const DUMMY_OFFSET: u64 = u64::MAX;
 
     pub fn dummy() -> Self {
         Self {
             block: PathOramBlock::<V>::dummy(),
+            #[cfg(feature = "exact_locations")]
             exact_bucket: BlockMetadata::NOT_IN_TREE,
+            #[cfg(feature = "exact_locations")]
             exact_offset: Self::DUMMY_OFFSET,
         }
     }
@@ -51,11 +59,15 @@ impl<V: OramBlock> StashEntry<V> {
 impl<V: OramBlock> ConditionallySelectable for StashEntry<V> {
     fn conditional_select(a: &Self, b: &Self, choice: Choice) -> Self {
         let block = PathOramBlock::conditional_select(&a.block, &b.block, choice);
+        #[cfg(feature = "exact_locations")]
         let exact_bucket = u64::conditional_select(&a.exact_bucket, &b.exact_bucket, choice);
+        #[cfg(feature = "exact_locations")]
         let exact_offset = u64::conditional_select(&a.exact_offset, &b.exact_offset, choice);
         Self {
             block,
+            #[cfg(feature = "exact_locations")]
             exact_bucket,
+            #[cfg(feature = "exact_locations")]
             exact_offset,
         }
     }
@@ -223,8 +235,11 @@ impl<V: OramBlock> ObliviousStash<V> {
 
                 bucket_to_write.blocks[slot_number] = self.entries[stash_index].block;
 
-                self.entries[stash_index].exact_bucket = bucket_index.try_into()?;
-                self.entries[stash_index].exact_offset = slot_number.try_into()?;
+                #[cfg(feature = "exact_locations")]
+                {
+                    self.entries[stash_index].exact_bucket = bucket_index.try_into()?;
+                    self.entries[stash_index].exact_offset = slot_number.try_into()?;
+                }
             }
         }
 
@@ -372,8 +387,11 @@ impl<V: OramBlock> ObliviousStash<V> {
 
                 bucket_to_write.blocks[slot_number] = self.entries[stash_index].block;
 
-                self.entries[stash_index].exact_bucket = bucket_index.try_into()?;
-                self.entries[stash_index].exact_offset = slot_number.try_into()?;
+                #[cfg(feature = "exact_locations")]
+                {
+                    self.entries[stash_index].exact_bucket = bucket_index.try_into()?;
+                    self.entries[stash_index].exact_offset = slot_number.try_into()?;
+                }
             }
         }
 
@@ -507,7 +525,9 @@ impl<V: OramBlock> ObliviousStash<V> {
             for slot_index in 0..Z {
                 self.entries[Z * (usize::try_from(i)?) + slot_index] = StashEntry {
                     block: bucket.blocks[slot_index],
+                    #[cfg(feature = "exact_locations")]
                     exact_bucket: BlockMetadata::NOT_IN_TREE,
+                    #[cfg(feature = "exact_locations")]
                     exact_offset: StashEntry::<V>::DUMMY_OFFSET,
                 }
             }
@@ -568,7 +588,9 @@ impl<V: OramBlock> ObliviousStash<V> {
             for block in bucket.blocks {
                 self.entries[*stash_index] = StashEntry {
                     block,
+                    #[cfg(feature = "exact_locations")]
                     exact_bucket: BlockMetadata::NOT_IN_TREE,
+                    #[cfg(feature = "exact_locations")]
                     exact_offset: StashEntry::<V>::DUMMY_OFFSET,
                 };
                 *stash_index += 1;

@@ -79,7 +79,7 @@ impl<const AB: BlockSize, const Z: BucketSize> PositionMap<AB, Z> {
         rng: &mut R,
         overflow_size: StashSize,
         recursion_cutoff: RecursionCutoff,
-        use_batching: bool,
+        #[cfg(feature = "exact_locations")] use_batching: bool,
     ) -> Result<Self, OramError> {
         log::info!(
             "PositionMap::new(number_of_addresses = {})",
@@ -102,11 +102,20 @@ impl<const AB: BlockSize, const Z: BucketSize> PositionMap<AB, Z> {
             Ok(Self::Base(LinearTimeOram::new(block_capacity)?))
         } else {
             let block_capacity = number_of_addresses / ab_address;
-            let max_batch_size = if use_batching {
-                u64::from(block_capacity.ilog2()) * u64::try_from(Z)?
-            } else {
-                1
+            let max_batch_size = {
+                #[cfg(feature = "exact_locations")]
+                if use_batching {
+                    u64::from(block_capacity.ilog2()) * u64::try_from(Z)?
+                } else {
+                    1
+                }
+
+                #[cfg(not(feature = "exact_locations"))]
+                {
+                    1
+                }
             };
+
             Ok(Self::Recursive(Box::new(PathOram::new_with_parameters(
                 block_capacity,
                 rng,

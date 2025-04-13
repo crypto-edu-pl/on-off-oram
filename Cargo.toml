@@ -28,6 +28,7 @@ paste = "1"
 
 exact_locations = []
 exact_locations_and_batch_position_map = ["exact_locations"]
+batched_turning_on = []
 
 [[bench]]
 name = "benchmark"

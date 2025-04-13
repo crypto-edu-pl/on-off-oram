@@ -8,13 +8,13 @@
 //! An implementation of Path ORAM.
 
 use std::{
-    cmp,
+    cmp::{self, min},
     collections::{hash_map, HashMap},
     mem,
 };
 
 #[cfg(feature = "exact_locations")]
-use std::{cmp::min, slice::SliceIndex};
+use std::slice::SliceIndex;
 
 use rand::{CryptoRng, Rng, RngCore};
 
@@ -49,9 +49,6 @@ pub const DEFAULT_STASH_OVERFLOW_SIZE: StashSize = 40;
 
 /// The cutoff size in blocks below which `DefaultOram` is simply a linear time ORAM.
 pub const LINEAR_TIME_ORAM_CUTOFF: RecursionCutoff = 1 << 6;
-
-/// Default max batch size.
-pub const DEFAULT_MAX_BATCH_SIZE: u64 = 1;
 
 /// A doubly oblivious Path ORAM.
 ///
@@ -205,6 +202,17 @@ impl<V: OramBlock> DefaultOram<V> {
                 block_capacity,
             )?)))
         } else {
+            let max_batch_size = {
+                #[cfg(feature = "batched_turning_on")]
+                {
+                    u64::from(block_capacity.ilog2()) * u64::try_from(DEFAULT_BLOCKS_PER_BUCKET)?
+                }
+
+                #[cfg(not(feature = "batched_turning_on"))]
+                {
+                    1
+                }
+            };
             Ok(Self(DefaultOramBackend::Path(PathOram::<
                 V,
                 DEFAULT_BLOCKS_PER_BUCKET,
@@ -214,7 +222,7 @@ impl<V: OramBlock> DefaultOram<V> {
                 rng,
                 DEFAULT_STASH_OVERFLOW_SIZE,
                 DEFAULT_RECURSION_CUTOFF,
-                DEFAULT_MAX_BATCH_SIZE,
+                max_batch_size,
             )?)))
         }
     }
@@ -620,20 +628,36 @@ impl<V: OramBlock, const Z: BucketSize, const AB: BlockSize> Oram for PathOram<V
 
                     #[cfg(not(feature = "exact_locations"))]
                     {
-                        self.position_map
-                            .batch_write(
-                                &callbacks
-                                    .iter()
-                                    .map(|(address, _)| *address)
-                                    .zip(new_positions.iter().map(|new_position| BlockMetadata {
-                                        assigned_leaf: *new_position,
-                                    }))
+                        let mut paths = Vec::with_capacity(callbacks.len());
+
+                        for batch_begin in
+                            (0..callbacks.len()).step_by(self.stash.path_size.try_into()?)
+                        {
+                            let batch_end = min(
+                                batch_begin + usize::try_from(self.stash.path_size)?,
+                                callbacks.len(),
+                            );
+                            paths.extend(
+                                self.position_map
+                                    .batch_write(
+                                        &callbacks[batch_begin..batch_end]
+                                            .iter()
+                                            .map(|(address, _)| *address)
+                                            .zip(new_positions[batch_begin..batch_end].iter().map(
+                                                |new_position| BlockMetadata {
+                                                    assigned_leaf: *new_position,
+                                                },
+                                            ))
+                                            .collect::<Vec<_>>(),
+                                        rng,
+                                    )?
+                                    .into_iter()
+                                    .map(|metadata| metadata.assigned_leaf)
                                     .collect::<Vec<_>>(),
-                                rng,
-                            )?
-                            .into_iter()
-                            .map(|metadata| metadata.assigned_leaf)
-                            .collect::<Vec<_>>()
+                            );
+                        }
+
+                        paths
                     }
                 };
                 paths_to_evict.sort_by_key(|x| cmp::Reverse(*x));
@@ -648,15 +672,17 @@ impl<V: OramBlock, const Z: BucketSize, const AB: BlockSize> Oram for PathOram<V
                     .write_to_paths(&mut self.physical_memory, &paths_to_evict)?;
 
                 #[cfg(feature = "exact_locations")]
-                // Update the position map. Limit the batch size so that it fits in the position map's stash
-                for batch_begin in
-                    (0..self.stash.entries.len()).step_by(self.stash.path_size.try_into()?)
                 {
-                    let batch_end = min(
-                        batch_begin + usize::try_from(self.stash.path_size)?,
-                        self.stash.entries.len(),
-                    );
-                    self.batch_update_position_map(batch_begin..batch_end, rng)?;
+                    // Update the position map. Limit the batch size so that it fits in the position map's stash
+                    for batch_begin in
+                        (0..self.stash.entries.len()).step_by(self.stash.path_size.try_into()?)
+                    {
+                        let batch_end = min(
+                            batch_begin + usize::try_from(self.stash.path_size)?,
+                            self.stash.entries.len(),
+                        );
+                        self.batch_update_position_map(batch_begin..batch_end, rng)?;
+                    }
                 }
 
                 Ok(result)
@@ -670,16 +696,32 @@ impl<V: OramBlock, const Z: BucketSize, const AB: BlockSize> Oram for PathOram<V
     }
 
     fn turn_on<R: RngCore + CryptoRng>(&mut self, rng: &mut R) -> Result<(), OramError> {
-        // TODO optimize this using batching. In a simpler approach we can batch based on the positions in the top-level ORAM.
-        // In a more complex approach we could evict and batch each recursive layer separately.
-
         self.mode = OramMode::On;
         // Evictions in the position map will happen during the reads below
         self.position_map.turn_on_without_evicting()?;
 
-        for address in mem::take(&mut self.blocks_accessed_in_off_mode).keys() {
-            // Reading the block causes its path to be evicted.
-            self.read(*address, rng)?;
+        #[cfg(not(feature = "batched_turning_on"))]
+        {
+            for address in mem::take(&mut self.blocks_accessed_in_off_mode).keys() {
+                // Reading the block causes its path to be evicted.
+                self.read(*address, rng)?;
+            }
+        }
+
+        #[cfg(feature = "batched_turning_on")]
+        {
+            let addresses = mem::take(&mut self.blocks_accessed_in_off_mode)
+                .keys()
+                .copied()
+                .collect::<Vec<_>>();
+
+            for batch_begin in (0..addresses.len()).step_by(self.stash.path_size.try_into()?) {
+                let batch_end = min(
+                    batch_begin + usize::try_from(self.stash.path_size)?,
+                    addresses.len(),
+                );
+                self.batch_read(&addresses[batch_begin..batch_end], rng)?;
+            }
         }
 
         Ok(())

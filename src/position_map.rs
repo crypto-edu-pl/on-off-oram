@@ -79,7 +79,6 @@ impl<const AB: BlockSize, const Z: BucketSize> PositionMap<AB, Z> {
         rng: &mut R,
         overflow_size: StashSize,
         recursion_cutoff: RecursionCutoff,
-        #[cfg(feature = "exact_locations")] use_batching: bool,
     ) -> Result<Self, OramError> {
         log::info!(
             "PositionMap::new(number_of_addresses = {})",
@@ -103,14 +102,12 @@ impl<const AB: BlockSize, const Z: BucketSize> PositionMap<AB, Z> {
         } else {
             let block_capacity = number_of_addresses / ab_address;
             let max_batch_size = {
-                #[cfg(feature = "exact_locations")]
-                if use_batching {
+                #[cfg(feature = "exact_locations_and_batch_position_map")]
+                {
                     u64::from(block_capacity.ilog2()) * u64::try_from(Z)?
-                } else {
-                    1
                 }
 
-                #[cfg(not(feature = "exact_locations"))]
+                #[cfg(not(feature = "exact_locations_and_batch_position_map"))]
                 {
                     1
                 }

@@ -53,9 +53,6 @@ pub const LINEAR_TIME_ORAM_CUTOFF: RecursionCutoff = 1 << 6;
 /// Default max batch size.
 pub const DEFAULT_MAX_BATCH_SIZE: u64 = 1;
 
-#[cfg(feature = "exact_locations")]
-const USE_BATCHING_IN_POSITION_MAP: bool = true;
-
 /// A doubly oblivious Path ORAM.
 ///
 /// ## Parameters
@@ -289,14 +286,8 @@ impl<V: OramBlock, const Z: BucketSize, const AB: BlockSize> PathOram<V, Z, AB> 
 
         // Initialize a new position map,
         // and initialize its entries to random leaf indices.
-        let mut position_map = PositionMap::new(
-            block_capacity,
-            rng,
-            overflow_size,
-            recursion_cutoff,
-            #[cfg(feature = "exact_locations")]
-            USE_BATCHING_IN_POSITION_MAP,
-        )?;
+        let mut position_map =
+            PositionMap::new(block_capacity, rng, overflow_size, recursion_cutoff)?;
 
         let first_leaf_index: u64 = 2u64.pow(height.try_into()?);
         let last_leaf_index = (2 * first_leaf_index) - 1;
@@ -437,45 +428,51 @@ impl<V: OramBlock, const Z: BucketSize, const AB: BlockSize> Oram for PathOram<V
                     .write_to_path(&mut self.physical_memory, path_to_evict)?;
 
                 #[cfg(feature = "exact_locations")]
-                if USE_BATCHING_IN_POSITION_MAP {
-                    // Update the position map. Limit the batch size so that it fits in the position map's stash
-                    for batch_begin in
-                        (0..self.stash.entries.len()).step_by(self.stash.path_size.try_into()?)
+                {
+                    #[cfg(feature = "exact_locations_and_batch_position_map")]
                     {
-                        let batch_end = min(
-                            batch_begin + usize::try_from(self.stash.path_size)?,
-                            self.stash.entries.len(),
-                        );
-                        self.batch_update_position_map(batch_begin..batch_end, rng)?;
+                        // Update the position map. Limit the batch size so that it fits in the position map's stash
+                        for batch_begin in
+                            (0..self.stash.entries.len()).step_by(self.stash.path_size.try_into()?)
+                        {
+                            let batch_end = min(
+                                batch_begin + usize::try_from(self.stash.path_size)?,
+                                self.stash.entries.len(),
+                            );
+                            self.batch_update_position_map(batch_begin..batch_end, rng)?;
+                        }
                     }
-                } else {
-                    for (i, entry) in self.stash.entries.iter().enumerate() {
-                        let is_in_tree = entry.exact_bucket.ct_ne(&BlockMetadata::NOT_IN_TREE);
-                        let exact_offset = u64::conditional_select(
-                            &i.try_into()?,
-                            &entry.exact_offset,
-                            is_in_tree,
-                        );
 
-                        let new_metadata = BlockMetadata {
-                            assigned_leaf: entry.block.position,
-                            exact_bucket: entry.exact_bucket,
-                            exact_offset,
-                        };
+                    #[cfg(not(feature = "exact_locations_and_batch_position_map"))]
+                    {
+                        for (i, entry) in self.stash.entries.iter().enumerate() {
+                            let is_in_tree = entry.exact_bucket.ct_ne(&BlockMetadata::NOT_IN_TREE);
+                            let exact_offset = u64::conditional_select(
+                                &i.try_into()?,
+                                &entry.exact_offset,
+                                is_in_tree,
+                            );
 
-                        // If the entry is a dummy, write to a dummy position at the end of the map so that no real
-                        // position gets overwritten
-                        let entry_is_dummy = entry
-                            .block
-                            .address
-                            .ct_eq(&PathOramBlock::<V>::DUMMY_ADDRESS);
-                        let entry_address = Address::conditional_select(
-                            &entry.block.address,
-                            &self.block_capacity()?,
-                            entry_is_dummy,
-                        );
+                            let new_metadata = BlockMetadata {
+                                assigned_leaf: entry.block.position,
+                                exact_bucket: entry.exact_bucket,
+                                exact_offset,
+                            };
 
-                        self.position_map.write(entry_address, new_metadata, rng)?;
+                            // If the entry is a dummy, write to a dummy position at the end of the map so that no real
+                            // position gets overwritten
+                            let entry_is_dummy = entry
+                                .block
+                                .address
+                                .ct_eq(&PathOramBlock::<V>::DUMMY_ADDRESS);
+                            let entry_address = Address::conditional_select(
+                                &entry.block.address,
+                                &self.block_capacity()?,
+                                entry_is_dummy,
+                            );
+
+                            self.position_map.write(entry_address, new_metadata, rng)?;
+                        }
                     }
                 }
 

@@ -19,7 +19,7 @@ use crate::{
     bucket::{BlockMetadata, Bucket, PathOramBlock, PositionBlock},
     linear_time_oram::LinearTimeOram,
     stash::StashEntry,
-    utils::{bitonic_sort_by_keys, CompleteBinaryTreeIndex, TreeHeight, TreeIndex},
+    utils::{CompleteBinaryTreeIndex, TreeHeight, TreeIndex},
     Address, BlockSize, BucketSize, Oram, OramBlock, OramError, OramMode, RecursionCutoff,
     StashSize,
 };
@@ -330,12 +330,13 @@ impl<V: OramBlock, const Z: BucketSize, const AB: BlockSize> PathOram<V, Z, AB> 
         let stash_entries = &self.stash.entries[range];
 
         // Create a batch of position map updates that contains exactly stash_entries.len()
-        // updates (each for a different address).
+        // unique updates (each for a different address).
 
-        let mut addresses = Vec::with_capacity(2 * stash_entries.len());
-        let mut metadatas = Vec::with_capacity(2 * stash_entries.len());
+        let mut updates = Vec::with_capacity(stash_entries.len());
+        let base_dummy_address = self.block_capacity()?;
 
         // Put the updates resulting from the stash entries in the update array.
+        // Change the address of dummy updates to a unique out-of-bounds address.
         for (i, entry) in stash_entries.iter().enumerate() {
             let is_in_tree = entry.exact_bucket.ct_ne(&BlockMetadata::NOT_IN_TREE);
             let exact_offset =
@@ -347,29 +348,17 @@ impl<V: OramBlock, const Z: BucketSize, const AB: BlockSize> PathOram<V, Z, AB> 
                 exact_offset,
             };
 
-            addresses.push(entry.block.address);
-            metadatas.push(metadata);
+            let is_dummy = entry.block.ct_is_dummy();
+            let address = Address::conditional_select(
+                &entry.block.address,
+                &(base_dummy_address + Address::try_from(i)?),
+                is_dummy,
+            );
+
+            updates.push((address, metadata));
         }
 
-        // Put dummy updates for addresses {self.block_capacity(), ..., self.block_capacity() + stash_entries.len() - 1}
-        // in the update array. This way, we will be guaranteed to be able to choose at least stash_entries.len() valid updates.
-        let block_capacity = self.block_capacity()?;
-        for i in 0..stash_entries.len() {
-            addresses.push(block_capacity + u64::try_from(i)?);
-            metadatas.push(BlockMetadata::default());
-        }
-
-        // Sort the updates by address.
-        bitonic_sort_by_keys(&mut metadatas, &mut addresses);
-        // Now in the arrays we have: first all real updates, then dummy updates with valid addresses, then dummy updates with dummy addresses.
-
-        addresses.truncate(stash_entries.len());
-        metadatas.truncate(stash_entries.len());
-
-        self.position_map.batch_write(
-            &addresses.into_iter().zip(metadatas).collect::<Vec<_>>(),
-            rng,
-        )?;
+        self.position_map.batch_write(&updates, rng)?;
 
         Ok(())
     }

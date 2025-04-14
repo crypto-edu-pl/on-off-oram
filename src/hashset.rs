@@ -1,7 +1,15 @@
 use std::hash::{BuildHasher, Hash, RandomState};
 
-use crate::{DefaultOram, Oram, OramBlock, OramError};
+use crate::{Oram, OramBlock, OramError};
+
+#[cfg(not(feature = "bypass_oram"))]
+use crate::DefaultOram;
+
+#[cfg(feature = "bypass_oram")]
+use crate::not_really_oram::NotReallyOram;
+
 use rand::{CryptoRng, Rng};
+
 use subtle::{Choice, ConditionallySelectable, ConstantTimeEq};
 
 /// Properties required from data stored in the hashset
@@ -10,8 +18,12 @@ impl<V: OramBlock + Hash + ConstantTimeEq> OramHashSetData for V {}
 
 /// The hashset
 pub struct OramHashSet<V: OramHashSetData> {
+    #[cfg(not(feature = "bypass_oram"))]
     /// The underlying data
     pub array: DefaultOram<OramHashSetEntry<V>>,
+    #[cfg(feature = "bypass_oram")]
+    /// The underlying data
+    pub array: NotReallyOram<OramHashSetEntry<V>>,
     hash_builder: RandomState,
 }
 
@@ -46,9 +58,16 @@ impl<V: OramHashSetData> OramHashSet<V> {
     const N_CHECKED_GROUPS: u64 = 3;
 
     /// Create new hashset
-    pub fn new<R: Rng + CryptoRng>(capacity: u64, rng: &mut R) -> Result<Self, OramError> {
+    pub fn new<R: Rng + CryptoRng>(
+        capacity: u64,
+        #[cfg(not(feature = "bypass_oram"))] rng: &mut R,
+        #[cfg(feature = "bypass_oram")] _rng: &mut R,
+    ) -> Result<Self, OramError> {
         Ok(OramHashSet {
+            #[cfg(not(feature = "bypass_oram"))]
             array: DefaultOram::<OramHashSetEntry<V>>::new(capacity, rng)?,
+            #[cfg(feature = "bypass_oram")]
+            array: NotReallyOram::<OramHashSetEntry<V>>::new(capacity)?,
             hash_builder: RandomState::new(),
         })
     }

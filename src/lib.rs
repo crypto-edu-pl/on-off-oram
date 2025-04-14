@@ -108,6 +108,9 @@ pub(crate) mod utils;
 /// An oblivious hashset that uses ORAM for the underlying storage
 pub mod hashset;
 
+/// A fake "ORAM" that actually just does plain memory accesses (as a baseline for performance comparisions)
+pub mod not_really_oram;
+
 pub use crate::bucket::BlockValue;
 pub use crate::path_oram::DefaultOram;
 pub use crate::path_oram::PathOram;

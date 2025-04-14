@@ -8,9 +8,8 @@ use rand::{rngs::OsRng, CryptoRng, RngCore};
 use simplelog::SimpleLogger;
 use subtle::{Choice, ConditionallySelectable, ConstantTimeEq};
 
-const N_DICT_WORDS: u64 = 142;
-const MAX_WORD_SIZE: usize = 11;
-const HASHSET_CAPACITY: u64 = (N_DICT_WORDS * 4).next_power_of_two();
+const MAX_WORD_SIZE: usize = 28;
+const HASHSET_CAPACITY: u64 = 1 << 20;
 
 #[derive(Default, Copy, Clone, PartialEq, Eq, Debug, Hash)]
 struct DictEntry([u8; MAX_WORD_SIZE]);
@@ -78,18 +77,13 @@ fn spellcheck<R: RngCore + CryptoRng>(
 fn main() {
     SimpleLogger::init(LevelFilter::Trace, simplelog::Config::default()).unwrap();
 
-    let grasshopper = get_words("data/grasshopper.txt")
-        .into_iter()
-        .map(DictEntry::from)
-        .collect::<Vec<_>>();
-    let hare_and_tortoise = get_words("data/hare_and_tortoise.txt")
+    let body_parts = get_words("data/body_parts.txt")
         .into_iter()
         .map(DictEntry::from)
         .collect::<Vec<_>>();
 
     let mut dictionary_entries = HashSet::new();
-    dictionary_entries.extend(&grasshopper);
-    dictionary_entries.extend(&hare_and_tortoise);
+    dictionary_entries.extend(&body_parts);
 
     let mut rng = OsRng;
 
@@ -115,13 +109,13 @@ fn main() {
 
     println!("ORAM on:");
 
-    spellcheck(&grasshopper, &mut dictionary, &mut rng).unwrap();
+    spellcheck(&body_parts, &mut dictionary, &mut rng).unwrap();
 
     println!("ORAM off:");
 
     dictionary.array.turn_off().unwrap();
 
-    spellcheck(&grasshopper, &mut dictionary, &mut rng).unwrap();
+    spellcheck(&body_parts, &mut dictionary, &mut rng).unwrap();
 
     let start = Instant::now();
 

@@ -4,30 +4,46 @@ use std::{
 };
 
 use log::LevelFilter;
-use rand::{distributions::Standard, rngs::OsRng, CryptoRng, Rng, RngCore};
+use rand::{distributions::Uniform, prelude::Distribution, rngs::OsRng, CryptoRng, RngCore};
 use simplelog::SimpleLogger;
 use static_assertions::const_assert;
 
-use oram::{path_oram::LINEAR_TIME_ORAM_CUTOFF, Address, DefaultOram, Oram};
+use oram::{path_oram::LINEAR_TIME_ORAM_CUTOFF, Address, Oram, OramError};
 
-const ARRAY_SIZE: u64 = 4096;
+#[cfg(not(feature = "bypass_oram"))]
+use oram::DefaultOram;
+
+#[cfg(feature = "bypass_oram")]
+use oram::not_really_oram::NotReallyOram;
+
+const ARRAY_SIZE: u64 = 1 << 17;
 
 const_assert!(ARRAY_SIZE >= LINEAR_TIME_ORAM_CUTOFF);
 
-fn benchmark_searches<O: Oram<V = u64>, R: RngCore + CryptoRng>(oram_array: &mut O, rng: &mut R) {
-    for _ in 0..20 {
-        let search_val = rng.gen::<u64>();
+fn benchmark_searches<O: Oram<V = u64>, R: RngCore + CryptoRng>(
+    oram_array: &mut O,
+    distribution: Uniform<u64>,
+    rng: &mut R,
+) -> Result<Vec<Option<Address>>, OramError> {
+    const N_SEARCHES: usize = 20;
 
+    let searched_values = distribution
+        .sample_iter(&mut *rng)
+        .take(N_SEARCHES)
+        .collect::<Vec<_>>();
+    let mut result = Vec::with_capacity(N_SEARCHES);
+
+    let start = Instant::now();
+
+    for search_val in searched_values {
         let mut l = 0;
         let mut r = ARRAY_SIZE - 1;
         let mut found = None;
 
-        let start = Instant::now();
-
         // Run for a fixed number of iterations to prevent leakage from the number of iterations and keep execution times consistent
         for _ in 0..ARRAY_SIZE.next_power_of_two().ilog2() {
             let mid = (l + r) / 2;
-            let val = oram_array.read(mid, rng).unwrap();
+            let val = oram_array.read(mid, rng)?;
 
             match val.cmp(&search_val) {
                 Ordering::Less => l = min(mid + 1, r),
@@ -35,10 +51,15 @@ fn benchmark_searches<O: Oram<V = u64>, R: RngCore + CryptoRng>(oram_array: &mut
                 Ordering::Equal => found = Some(mid),
             }
         }
-        let duration = start.elapsed();
 
-        println!("Found {:?} in {:?}", found, duration);
+        result.push(found);
     }
+
+    let duration = start.elapsed();
+
+    println!("Searched for {} values in {:?}", N_SEARCHES, duration);
+
+    Ok(result)
 }
 
 fn main() {
@@ -46,10 +67,28 @@ fn main() {
 
     let mut rng = OsRng;
 
-    let mut oram_array = DefaultOram::<u64>::new(ARRAY_SIZE, &mut rng).unwrap();
+    let start = Instant::now();
 
-    let mut values = (&mut rng)
-        .sample_iter(Standard)
+    let mut oram_array = {
+        #[cfg(not(feature = "bypass_oram"))]
+        {
+            DefaultOram::<u64>::new(ARRAY_SIZE, &mut rng).unwrap()
+        }
+
+        #[cfg(feature = "bypass_oram")]
+        {
+            NotReallyOram::<u64>::new(ARRAY_SIZE).unwrap()
+        }
+    };
+
+    let duration = start.elapsed();
+
+    println!("Initialized ORAM in {:?}", duration);
+
+    let distribution = Uniform::from(0..ARRAY_SIZE);
+
+    let mut values = distribution
+        .sample_iter(&mut rng)
         .take(ARRAY_SIZE as usize)
         .collect::<Vec<u64>>();
     values.sort();
@@ -62,17 +101,17 @@ fn main() {
 
     let duration = start.elapsed();
 
-    println!("Initialized ORAM in {:?}", duration);
+    println!("Prepared array in {:?}", duration);
 
     println!("ORAM on:");
 
-    benchmark_searches(&mut oram_array, &mut rng);
+    benchmark_searches(&mut oram_array, distribution, &mut rng).unwrap();
 
     println!("ORAM off:");
 
     oram_array.turn_off().unwrap();
 
-    benchmark_searches(&mut oram_array, &mut rng);
+    benchmark_searches(&mut oram_array, distribution, &mut rng).unwrap();
 
     let start = Instant::now();
 

@@ -18,6 +18,7 @@ use std::slice::SliceIndex;
 
 use rand::{CryptoRng, Rng, RngCore};
 
+use subtle::ConstantTimeEq;
 #[cfg(feature = "exact_locations")]
 use subtle::{ConditionallySelectable, ConstantTimeEq, ConstantTimeLess};
 
@@ -540,7 +541,9 @@ impl<V: OramBlock, const Z: BucketSize, const AB: BlockSize> Oram for PathOram<V
                                     for (offset, block) in
                                         self.physical_memory[bucket_idx].blocks.iter().enumerate()
                                     {
-                                        if block.address == address {
+                                        // Even though we are in off mode, we still want to use ct_eq - we must not leak
+                                        // the addresses of blocks other than the accessed one
+                                        if block.address.ct_eq(&address).into() {
                                             location = BlockLocation::OramTree {
                                                 bucket: bucket_idx,
                                                 offset,
@@ -553,7 +556,9 @@ impl<V: OramBlock, const Z: BucketSize, const AB: BlockSize> Oram for PathOram<V
 
                                 if matches!(location, BlockLocation::Dummy) {
                                     for (offset, entry) in self.stash.entries.iter().enumerate() {
-                                        if entry.block.address == address {
+                                        // Even though we are in off mode, we still want to use ct_eq - we must not leak
+                                        // the addresses of blocks other than the accessed one
+                                        if entry.block.address.ct_eq(&address).into() {
                                             location = BlockLocation::Stash { offset };
                                             break;
                                         }

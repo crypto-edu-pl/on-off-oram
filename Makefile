@@ -26,6 +26,7 @@ $(1).sig $(1).manifest.sgx &: $(1).manifest
 endef
 $(foreach test,$(TESTS),$(eval $(call sgx_generation_template,$(test))))
 
+.PHONY: $(addprefix bin/,$(TESTS))
 $(addprefix bin/,$(TESTS)): bin/%:
 	cargo install --path . --root . --bin $*
 

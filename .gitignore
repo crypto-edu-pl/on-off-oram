@@ -20,3 +20,10 @@ Cargo.lock
 /target
 
 /.vscode/
+
+/.crates.toml
+/.crates2.json
+/bin/
+/*.manifest
+/*.manifest.sgx
+/*.sig

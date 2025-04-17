@@ -1,0 +1,21 @@
+libos.entrypoint = "/binsearch_simple"
+
+loader.log_level = "{{ log_level }}"
+
+loader.env.LD_LIBRARY_PATH = "/lib:/usr/{{ arch_libdir }}"
+
+fs.mounts = [
+    { path = "/lib", uri = "file:{{ gramine.runtimedir() }}" },
+    { path = "/usr/{{ arch_libdir }}", uri = "file:/usr/{{ arch_libdir }}" },
+    { path = "/binsearch_simple", uri = "file:bin/binsearch_simple" },
+    { path = "/data", uri = "file:data" },
+]
+# 
+# sgx.enclave_size = "1M"
+# 
+sgx.allowed_files = [
+    "file:{{ gramine.runtimedir() }}/",
+    "file:/usr/{{ arch_libdir }}/",
+    "file:bin/binsearch_simple",
+    "file:data/",
+]

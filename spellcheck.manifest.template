@@ -10,9 +10,9 @@ fs.mounts = [
     { path = "/spellcheck", uri = "file:bin/spellcheck" },
     { path = "/data", uri = "file:data" },
 ]
-# 
-# sgx.enclave_size = "1M"
-# 
+
+sgx.enclave_size = "512M"
+
 sgx.allowed_files = [
     "file:{{ gramine.runtimedir() }}/",
     "file:/usr/{{ arch_libdir }}/",

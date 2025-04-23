@@ -9,9 +9,15 @@
 
 use std::{
     cmp::{self, min},
-    collections::{hash_map, HashMap},
+    collections::HashMap,
     mem,
 };
+
+#[cfg(any(
+    not(feature = "do_not_cache_block_values"),
+    feature = "direct_accesses_in_off_mode"
+))]
+use std::collections::hash_map;
 
 #[cfg(feature = "exact_locations_in_position_map")]
 use std::slice::SliceIndex;
@@ -108,8 +114,16 @@ pub struct PathOram<V: OramBlock, const Z: BucketSize, const AB: BlockSize> {
     /// This is not an oblivious data structure, but we use it only in off mode so it's fine.
     #[cfg(feature = "direct_accesses_in_off_mode")]
     blocks_accessed_in_off_mode: HashMap<Address, BlockLocation>,
-    #[cfg(not(feature = "direct_accesses_in_off_mode"))]
+    #[cfg(all(
+        not(feature = "direct_accesses_in_off_mode"),
+        not(feature = "do_not_cache_block_values"),
+    ))]
     blocks_accessed_in_off_mode: HashMap<Address, V>,
+    #[cfg(all(
+        not(feature = "direct_accesses_in_off_mode"),
+        feature = "do_not_cache_block_values",
+    ))]
+    blocks_accessed_in_off_mode: HashMap<Address, ()>,
 }
 
 #[cfg(feature = "direct_accesses_in_off_mode")]
@@ -604,36 +618,85 @@ impl<V: OramBlock, const Z: BucketSize, const AB: BlockSize> Oram for PathOram<V
 
                     #[cfg(not(feature = "direct_accesses_in_off_mode"))]
                     {
-                        let value: &mut V = match self.blocks_accessed_in_off_mode.entry(address) {
-                            hash_map::Entry::Occupied(occupied) => occupied.into_mut(),
-                            hash_map::Entry::Vacant(vacant) => {
-                                let metadata = self.position_map.read(address, rng)?;
+                        #[cfg(not(feature = "do_not_cache_block_values"))]
+                        {
+                            let value: &mut V = match self
+                                .blocks_accessed_in_off_mode
+                                .entry(address)
+                            {
+                                hash_map::Entry::Occupied(occupied) => occupied.into_mut(),
+                                hash_map::Entry::Vacant(vacant) => {
+                                    let metadata = self.position_map.read(address, rng)?;
 
-                                let mut result = V::default();
-                                let mut bucket_idx = usize::try_from(metadata.assigned_leaf)?;
+                                    let mut result = V::default();
+                                    let mut bucket_idx = usize::try_from(metadata.assigned_leaf)?;
 
-                                // We still need this to be oblivious, because the exact locations of blocks depend on the paths assigned to other blocks
-                                while bucket_idx > 0 {
-                                    for block in &self.physical_memory[bucket_idx].blocks {
-                                        let is_requested_block = block.address.ct_eq(&address);
-                                        result.conditional_assign(&block.value, is_requested_block);
+                                    // We still need this to be oblivious, because the exact locations of blocks depend on the paths assigned to other blocks
+                                    while bucket_idx > 0 {
+                                        for block in &self.physical_memory[bucket_idx].blocks {
+                                            let is_requested_block = block.address.ct_eq(&address);
+                                            result.conditional_assign(
+                                                &block.value,
+                                                is_requested_block,
+                                            );
+                                        }
+                                        bucket_idx >>= 1;
                                     }
-                                    bucket_idx >>= 1;
-                                }
 
-                                for entry in &self.stash.entries {
-                                    let is_requested_block = entry.block.address.ct_eq(&address);
-                                    result
-                                        .conditional_assign(&entry.block.value, is_requested_block);
-                                }
+                                    for entry in &self.stash.entries {
+                                        let is_requested_block =
+                                            entry.block.address.ct_eq(&address);
+                                        result.conditional_assign(
+                                            &entry.block.value,
+                                            is_requested_block,
+                                        );
+                                    }
 
-                                vacant.insert(result)
+                                    vacant.insert(result)
+                                }
+                            };
+
+                            let result = *value;
+                            *value = callback(value);
+                            result
+                        }
+
+                        #[cfg(feature = "do_not_cache_block_values")]
+                        {
+                            self.blocks_accessed_in_off_mode.insert(address, ());
+
+                            let metadata = self.position_map.read(address, rng)?;
+
+                            let mut result = V::default();
+                            let mut bucket_idx = usize::try_from(metadata.assigned_leaf)?;
+
+                            // We still need this to be oblivious, because the exact locations of blocks depend on the paths assigned to other blocks
+                            while bucket_idx > 0 {
+                                for block in &mut self.physical_memory[bucket_idx].blocks {
+                                    let is_requested_block = block.address.ct_eq(&address);
+                                    result.conditional_assign(&block.value, is_requested_block);
+
+                                    let new_value = callback(&block.value);
+                                    block
+                                        .value
+                                        .conditional_assign(&new_value, is_requested_block);
+                                }
+                                bucket_idx >>= 1;
                             }
-                        };
 
-                        let result = *value;
-                        *value = callback(value);
-                        result
+                            for entry in &mut self.stash.entries {
+                                let is_requested_block = entry.block.address.ct_eq(&address);
+                                result.conditional_assign(&entry.block.value, is_requested_block);
+
+                                let new_value = callback(&entry.block.value);
+                                entry
+                                    .block
+                                    .value
+                                    .conditional_assign(&new_value, is_requested_block);
+                            }
+
+                            result
+                        }
                     }
                 };
 
@@ -756,7 +819,7 @@ impl<V: OramBlock, const Z: BucketSize, const AB: BlockSize> Oram for PathOram<V
 
         #[cfg(not(feature = "batched_turning_on"))]
         {
-            #[cfg(feature = "direct_accesses_in_off_mode")]
+            #[cfg(feature = "do_not_cache_block_values")]
             {
                 for address in mem::take(&mut self.blocks_accessed_in_off_mode).keys() {
                     // Reading the block causes its path to be evicted.
@@ -764,7 +827,7 @@ impl<V: OramBlock, const Z: BucketSize, const AB: BlockSize> Oram for PathOram<V
                 }
             }
 
-            #[cfg(not(feature = "direct_accesses_in_off_mode"))]
+            #[cfg(not(feature = "do_not_cache_block_values"))]
             {
                 for (address, value) in mem::take(&mut self.blocks_accessed_in_off_mode) {
                     self.write(address, value, rng)?;
@@ -774,7 +837,8 @@ impl<V: OramBlock, const Z: BucketSize, const AB: BlockSize> Oram for PathOram<V
 
         #[cfg(feature = "batched_turning_on")]
         {
-            const _UNIMPLEMENTED_COMBINATION: () = assert!(cfg!(feature = "direct_accesses_in_off_mode"));
+            const _UNIMPLEMENTED_COMBINATION: () =
+                assert!(cfg!(feature = "direct_accesses_in_off_mode"));
 
             let addresses = mem::take(&mut self.blocks_accessed_in_off_mode)
                 .keys()

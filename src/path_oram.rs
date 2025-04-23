@@ -20,16 +20,19 @@ use rand::{CryptoRng, Rng, RngCore};
 
 use subtle::ConstantTimeEq;
 #[cfg(feature = "exact_locations_in_position_map")]
-use subtle::{ConditionallySelectable, ConstantTimeEq, ConstantTimeLess};
+use subtle::{ConditionallySelectable, ConstantTimeLess};
 
 use super::{position_map::PositionMap, stash::ObliviousStash};
 use crate::{
-    bucket::{BlockMetadata, Bucket, PathOramBlock, PositionBlock},
+    bucket::{BlockMetadata, Bucket, PositionBlock},
     linear_time_oram::LinearTimeOram,
     utils::{CompleteBinaryTreeIndex, TreeHeight},
     Address, BlockSize, BucketSize, Oram, OramBlock, OramError, OramMode, RecursionCutoff,
     StashSize,
 };
+
+#[cfg(feature = "direct_accesses_in_off_mode")]
+use crate::bucket::PathOramBlock;
 
 #[cfg(feature = "exact_locations_in_position_map")]
 use crate::{stash::StashEntry, utils::TreeIndex};
@@ -103,12 +106,13 @@ pub struct PathOram<V: OramBlock, const Z: BucketSize, const AB: BlockSize> {
     /// The set of blocks accessed in off mode. Their paths will be evicted when ORAM is turned on.
     ///
     /// This is not an oblivious data structure, but we use it only in off mode so it's fine.
-    ///
-    /// TODO Probably only the top-level ORAM needs to track this (the position map can be evicted as a part of evicting
-    /// the top-level ORAM)
+    #[cfg(feature = "direct_accesses_in_off_mode")]
     blocks_accessed_in_off_mode: HashMap<Address, BlockLocation>,
+    #[cfg(not(feature = "direct_accesses_in_off_mode"))]
+    blocks_accessed_in_off_mode: HashMap<Address, V>,
 }
 
+#[cfg(feature = "direct_accesses_in_off_mode")]
 #[derive(Debug, Copy, Clone)]
 enum BlockLocation {
     OramTree { bucket: usize, offset: usize },
@@ -496,97 +500,142 @@ impl<V: OramBlock, const Z: BucketSize, const AB: BlockSize> Oram for PathOram<V
                     });
                 }
 
-                // We are in off mode so we don't care about oblivious operations.
+                let result = {
+                    #[cfg(feature = "direct_accesses_in_off_mode")]
+                    {
+                        // We are in off mode so we don't care about oblivious operations.
 
-                // Cache the block position - we have log N levels of recursion, so without caching
-                // we still have O(log N) overhead on every access even if we store the exact block locations
-                let block_location = match self.blocks_accessed_in_off_mode.entry(address) {
-                    hash_map::Entry::Occupied(occupied) => *occupied.get(),
-                    hash_map::Entry::Vacant(vacant) => {
-                        let metadata = self.position_map.read(address, rng)?;
+                        // Cache the block position - we have log N levels of recursion, so without caching
+                        // we still have O(log N) overhead on every access even if we store the exact block locations
+                        let block_location = match self.blocks_accessed_in_off_mode.entry(address) {
+                            hash_map::Entry::Occupied(occupied) => *occupied.get(),
+                            hash_map::Entry::Vacant(vacant) => {
+                                let metadata = self.position_map.read(address, rng)?;
 
-                        let block_location = {
-                            #[cfg(feature = "exact_locations_in_position_map")]
-                            {
-                                match metadata {
-                                    BlockMetadata {
-                                        exact_bucket: BlockMetadata::NOT_IN_TREE,
-                                        exact_offset: BlockMetadata::UNINITIALIZED,
-                                        ..
-                                    } => BlockLocation::Dummy,
-                                    BlockMetadata {
-                                        exact_bucket: BlockMetadata::NOT_IN_TREE,
-                                        exact_offset,
-                                        ..
-                                    } => BlockLocation::Stash {
-                                        offset: exact_offset.try_into()?,
-                                    },
-                                    BlockMetadata {
-                                        exact_bucket,
-                                        exact_offset,
-                                        ..
-                                    } => BlockLocation::OramTree {
-                                        bucket: exact_bucket.try_into()?,
-                                        offset: exact_offset.try_into()?,
-                                    },
-                                }
+                                let block_location = {
+                                    #[cfg(feature = "exact_locations_in_position_map")]
+                                    {
+                                        match metadata {
+                                            BlockMetadata {
+                                                exact_bucket: BlockMetadata::NOT_IN_TREE,
+                                                exact_offset: BlockMetadata::UNINITIALIZED,
+                                                ..
+                                            } => BlockLocation::Dummy,
+                                            BlockMetadata {
+                                                exact_bucket: BlockMetadata::NOT_IN_TREE,
+                                                exact_offset,
+                                                ..
+                                            } => BlockLocation::Stash {
+                                                offset: exact_offset.try_into()?,
+                                            },
+                                            BlockMetadata {
+                                                exact_bucket,
+                                                exact_offset,
+                                                ..
+                                            } => BlockLocation::OramTree {
+                                                bucket: exact_bucket.try_into()?,
+                                                offset: exact_offset.try_into()?,
+                                            },
+                                        }
+                                    }
+
+                                    #[cfg(not(feature = "exact_locations_in_position_map"))]
+                                    {
+                                        let mut location = BlockLocation::Dummy;
+                                        let mut bucket_idx =
+                                            usize::try_from(metadata.assigned_leaf)?;
+
+                                        'buckets: while bucket_idx > 0 {
+                                            for (offset, block) in self.physical_memory[bucket_idx]
+                                                .blocks
+                                                .iter()
+                                                .enumerate()
+                                            {
+                                                // Even though we are in off mode, we still want to use ct_eq - we must not leak
+                                                // the addresses of blocks other than the accessed one
+                                                if block.address.ct_eq(&address).into() {
+                                                    location = BlockLocation::OramTree {
+                                                        bucket: bucket_idx,
+                                                        offset,
+                                                    };
+                                                    break 'buckets;
+                                                }
+                                            }
+                                            bucket_idx >>= 1;
+                                        }
+
+                                        if matches!(location, BlockLocation::Dummy) {
+                                            for (offset, entry) in
+                                                self.stash.entries.iter().enumerate()
+                                            {
+                                                // Even though we are in off mode, we still want to use ct_eq - we must not leak
+                                                // the addresses of blocks other than the accessed one
+                                                if entry.block.address.ct_eq(&address).into() {
+                                                    location = BlockLocation::Stash { offset };
+                                                    break;
+                                                }
+                                            }
+                                        }
+
+                                        location
+                                    }
+                                };
+
+                                *vacant.insert(block_location)
                             }
+                        };
 
-                            #[cfg(not(feature = "exact_locations_in_position_map"))]
-                            {
-                                let mut location = BlockLocation::Dummy;
+                        let block = match block_location {
+                            BlockLocation::Stash { offset } => {
+                                let stash_entry = &mut self.stash.entries[offset];
+                                &mut stash_entry.block
+                            }
+                            BlockLocation::OramTree { bucket, offset } => {
+                                let bucket = &mut self.physical_memory[bucket];
+                                &mut bucket.blocks[offset]
+                            }
+                            BlockLocation::Dummy => &mut PathOramBlock::dummy(),
+                        };
+
+                        let result = block.value;
+                        block.value = callback(&block.value);
+                        result
+                    }
+
+                    #[cfg(not(feature = "direct_accesses_in_off_mode"))]
+                    {
+                        let value: &mut V = match self.blocks_accessed_in_off_mode.entry(address) {
+                            hash_map::Entry::Occupied(occupied) => occupied.into_mut(),
+                            hash_map::Entry::Vacant(vacant) => {
+                                let metadata = self.position_map.read(address, rng)?;
+
+                                let mut result = V::default();
                                 let mut bucket_idx = usize::try_from(metadata.assigned_leaf)?;
 
-                                'buckets: while bucket_idx > 0 {
-                                    for (offset, block) in
-                                        self.physical_memory[bucket_idx].blocks.iter().enumerate()
-                                    {
-                                        // Even though we are in off mode, we still want to use ct_eq - we must not leak
-                                        // the addresses of blocks other than the accessed one
-                                        if block.address.ct_eq(&address).into() {
-                                            location = BlockLocation::OramTree {
-                                                bucket: bucket_idx,
-                                                offset,
-                                            };
-                                            break 'buckets;
-                                        }
+                                // We still need this to be oblivious, because the exact locations of blocks depend on the paths assigned to other blocks
+                                while bucket_idx > 0 {
+                                    for block in &self.physical_memory[bucket_idx].blocks {
+                                        let is_requested_block = block.address.ct_eq(&address);
+                                        result.conditional_assign(&block.value, is_requested_block);
                                     }
                                     bucket_idx >>= 1;
                                 }
 
-                                if matches!(location, BlockLocation::Dummy) {
-                                    for (offset, entry) in self.stash.entries.iter().enumerate() {
-                                        // Even though we are in off mode, we still want to use ct_eq - we must not leak
-                                        // the addresses of blocks other than the accessed one
-                                        if entry.block.address.ct_eq(&address).into() {
-                                            location = BlockLocation::Stash { offset };
-                                            break;
-                                        }
-                                    }
+                                for entry in &self.stash.entries {
+                                    let is_requested_block = entry.block.address.ct_eq(&address);
+                                    result
+                                        .conditional_assign(&entry.block.value, is_requested_block);
                                 }
 
-                                location
+                                vacant.insert(result)
                             }
                         };
 
-                        *vacant.insert(block_location)
+                        let result = *value;
+                        *value = callback(value);
+                        result
                     }
                 };
-
-                let block = match block_location {
-                    BlockLocation::Stash { offset } => {
-                        let stash_entry = &mut self.stash.entries[offset];
-                        &mut stash_entry.block
-                    }
-                    BlockLocation::OramTree { bucket, offset } => {
-                        let bucket = &mut self.physical_memory[bucket];
-                        &mut bucket.blocks[offset]
-                    }
-                    BlockLocation::Dummy => &mut PathOramBlock::dummy(),
-                };
-
-                let result = block.value;
-                block.value = callback(&block.value);
 
                 Ok(result)
             }
@@ -707,14 +756,26 @@ impl<V: OramBlock, const Z: BucketSize, const AB: BlockSize> Oram for PathOram<V
 
         #[cfg(not(feature = "batched_turning_on"))]
         {
-            for address in mem::take(&mut self.blocks_accessed_in_off_mode).keys() {
-                // Reading the block causes its path to be evicted.
-                self.read(*address, rng)?;
+            #[cfg(feature = "direct_accesses_in_off_mode")]
+            {
+                for address in mem::take(&mut self.blocks_accessed_in_off_mode).keys() {
+                    // Reading the block causes its path to be evicted.
+                    self.read(*address, rng)?;
+                }
+            }
+
+            #[cfg(not(feature = "direct_accesses_in_off_mode"))]
+            {
+                for (address, value) in mem::take(&mut self.blocks_accessed_in_off_mode) {
+                    self.write(address, value, rng)?;
+                }
             }
         }
 
         #[cfg(feature = "batched_turning_on")]
         {
+            const _UNIMPLEMENTED_COMBINATION: () = assert!(cfg!(feature = "direct_accesses_in_off_mode"));
+
             let addresses = mem::take(&mut self.blocks_accessed_in_off_mode)
                 .keys()
                 .copied()

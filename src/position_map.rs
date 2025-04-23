@@ -103,7 +103,7 @@ impl<const AB: BlockSize, const Z: BucketSize> PositionMap<AB, Z> {
             let block_capacity = number_of_addresses / ab_address;
             let max_batch_size = {
                 #[cfg(any(
-                    feature = "exact_locations_and_batch_position_map",
+                    feature = "exact_locations_in_position_map_and_batch_position_map",
                     feature = "batched_turning_on"
                 ))]
                 {
@@ -111,7 +111,7 @@ impl<const AB: BlockSize, const Z: BucketSize> PositionMap<AB, Z> {
                 }
 
                 #[cfg(not(any(
-                    feature = "exact_locations_and_batch_position_map",
+                    feature = "exact_locations_in_position_map_and_batch_position_map",
                     feature = "batched_turning_on"
                 )))]
                 {

@@ -13,13 +13,13 @@ use std::{
     mem,
 };
 
-#[cfg(feature = "exact_locations")]
+#[cfg(feature = "exact_locations_in_position_map")]
 use std::slice::SliceIndex;
 
 use rand::{CryptoRng, Rng, RngCore};
 
 use subtle::ConstantTimeEq;
-#[cfg(feature = "exact_locations")]
+#[cfg(feature = "exact_locations_in_position_map")]
 use subtle::{ConditionallySelectable, ConstantTimeEq, ConstantTimeLess};
 
 use super::{position_map::PositionMap, stash::ObliviousStash};
@@ -31,7 +31,7 @@ use crate::{
     StashSize,
 };
 
-#[cfg(feature = "exact_locations")]
+#[cfg(feature = "exact_locations_in_position_map")]
 use crate::{stash::StashEntry, utils::TreeIndex};
 
 /// The default cutoff size in blocks
@@ -311,7 +311,7 @@ impl<V: OramBlock, const Z: BucketSize, const AB: BlockSize> PathOram<V, Z, AB> 
             let mut data = [BlockMetadata::default(); AB];
             for metadata in &mut data {
                 metadata.assigned_leaf = rng.gen_range(first_leaf_index..=last_leaf_index);
-                #[cfg(feature = "exact_locations")]
+                #[cfg(feature = "exact_locations_in_position_map")]
                 {
                     metadata.exact_bucket = BlockMetadata::NOT_IN_TREE;
                     metadata.exact_offset = BlockMetadata::UNINITIALIZED;
@@ -331,7 +331,7 @@ impl<V: OramBlock, const Z: BucketSize, const AB: BlockSize> PathOram<V, Z, AB> 
         })
     }
 
-    #[cfg(feature = "exact_locations")]
+    #[cfg(feature = "exact_locations_in_position_map")]
     fn batch_update_position_map<
         R: Rng + CryptoRng,
         RangeT: SliceIndex<[StashEntry<V>], Output = [StashEntry<V>]>,
@@ -397,7 +397,7 @@ impl<V: OramBlock, const Z: BucketSize, const AB: BlockSize> Oram for PathOram<V
                 let new_position = CompleteBinaryTreeIndex::random_leaf(self.height, rng)?;
 
                 let path_to_evict = {
-                    #[cfg(feature = "exact_locations")]
+                    #[cfg(feature = "exact_locations_in_position_map")]
                     {
                         // If the address is out of bounds (>= block_capacity), the access will return the dummy value and update nothing
                         let is_real_access = address.ct_lt(&self.block_capacity()?);
@@ -413,7 +413,7 @@ impl<V: OramBlock, const Z: BucketSize, const AB: BlockSize> Oram for PathOram<V
                         )
                     }
 
-                    #[cfg(not(feature = "exact_locations"))]
+                    #[cfg(not(feature = "exact_locations_in_position_map"))]
                     {
                         let new_metadata = BlockMetadata {
                             assigned_leaf: new_position,
@@ -436,9 +436,9 @@ impl<V: OramBlock, const Z: BucketSize, const AB: BlockSize> Oram for PathOram<V
                 self.stash
                     .write_to_path(&mut self.physical_memory, path_to_evict)?;
 
-                #[cfg(feature = "exact_locations")]
+                #[cfg(feature = "exact_locations_in_position_map")]
                 {
-                    #[cfg(feature = "exact_locations_and_batch_position_map")]
+                    #[cfg(feature = "exact_locations_in_position_map_and_batch_position_map")]
                     {
                         // Update the position map. Limit the batch size so that it fits in the position map's stash
                         for batch_begin in
@@ -452,7 +452,7 @@ impl<V: OramBlock, const Z: BucketSize, const AB: BlockSize> Oram for PathOram<V
                         }
                     }
 
-                    #[cfg(not(feature = "exact_locations_and_batch_position_map"))]
+                    #[cfg(not(feature = "exact_locations_in_position_map_and_batch_position_map"))]
                     {
                         for (i, entry) in self.stash.entries.iter().enumerate() {
                             let is_in_tree = entry.exact_bucket.ct_ne(&BlockMetadata::NOT_IN_TREE);
@@ -506,7 +506,7 @@ impl<V: OramBlock, const Z: BucketSize, const AB: BlockSize> Oram for PathOram<V
                         let metadata = self.position_map.read(address, rng)?;
 
                         let block_location = {
-                            #[cfg(feature = "exact_locations")]
+                            #[cfg(feature = "exact_locations_in_position_map")]
                             {
                                 match metadata {
                                     BlockMetadata {
@@ -532,7 +532,7 @@ impl<V: OramBlock, const Z: BucketSize, const AB: BlockSize> Oram for PathOram<V
                                 }
                             }
 
-                            #[cfg(not(feature = "exact_locations"))]
+                            #[cfg(not(feature = "exact_locations_in_position_map"))]
                             {
                                 let mut location = BlockLocation::Dummy;
                                 let mut bucket_idx = usize::try_from(metadata.assigned_leaf)?;
@@ -607,7 +607,7 @@ impl<V: OramBlock, const Z: BucketSize, const AB: BlockSize> Oram for PathOram<V
                 )?;
 
                 let mut paths_to_evict = {
-                    #[cfg(feature = "exact_locations")]
+                    #[cfg(feature = "exact_locations_in_position_map")]
                     {
                         let block_capacity = self.block_capacity()?;
                         self.position_map
@@ -631,7 +631,7 @@ impl<V: OramBlock, const Z: BucketSize, const AB: BlockSize> Oram for PathOram<V
                             .collect::<Vec<_>>()
                     }
 
-                    #[cfg(not(feature = "exact_locations"))]
+                    #[cfg(not(feature = "exact_locations_in_position_map"))]
                     {
                         let mut paths = Vec::with_capacity(callbacks.len());
 
@@ -676,7 +676,7 @@ impl<V: OramBlock, const Z: BucketSize, const AB: BlockSize> Oram for PathOram<V
                 self.stash
                     .write_to_paths(&mut self.physical_memory, &paths_to_evict)?;
 
-                #[cfg(feature = "exact_locations")]
+                #[cfg(feature = "exact_locations_in_position_map")]
                 {
                     // Update the position map. Limit the batch size so that it fits in the position map's stash
                     for batch_begin in

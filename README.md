@@ -37,7 +37,6 @@ Code Organization
 License
 -------
 
-This project is dual-licensed under either the [MIT license](https://github/crypto-edu-pl/on-off-oram/blob/main/LICENSE-MIT)
-or the [Apache License, Version 2.0](https://github/crypto-edu-pl/on-off-oram/blob/main/LICENSE-APACHE).
+This project is dual-licensed under either the [MIT license](https://github.com/crypto-edu-pl/on-off-oram/blob/main/LICENSE-MIT) or the [Apache License, Version 2.0](https://github.com/crypto-edu-pl/on-off-oram/blob/main/LICENSE-APACHE).
 You may select, at your option, one of the above-listed licenses.
 

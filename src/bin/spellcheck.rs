@@ -3,13 +3,16 @@ use std::time::Instant;
 
 use log::LevelFilter;
 use oram::{hashset::OramHashSet, OramBlock};
-use oram::{Oram, OramError};
+use oram::{path_oram::LINEAR_TIME_ORAM_CUTOFF, Oram, OramError};
 use rand::{rngs::OsRng, CryptoRng, RngCore};
 use simplelog::SimpleLogger;
+use static_assertions::const_assert;
 use subtle::{Choice, ConditionallySelectable, ConstantTimeEq};
 
 const MAX_WORD_SIZE: usize = 28;
 const HASHSET_CAPACITY: u64 = 1 << 20;
+
+const_assert!(HASHSET_CAPACITY >= LINEAR_TIME_ORAM_CUTOFF);
 
 #[derive(Default, Copy, Clone, PartialEq, Eq, Debug, Hash)]
 struct DictEntry([u8; MAX_WORD_SIZE]);

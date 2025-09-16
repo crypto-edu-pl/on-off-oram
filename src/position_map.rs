@@ -13,21 +13,7 @@ use crate::{linear_time_oram::LinearTimeOram, Address, BlockSize, BucketSize, Or
 use crate::{OramError, RecursionCutoff};
 use crate::{OramMode, StashSize};
 use rand::{CryptoRng, RngCore};
-use subtle::{Choice, ConditionallySelectable, ConstantTimeEq};
-
-#[derive(Copy, Clone)]
-pub struct PositionMapUpdate {
-    pub address: Address,
-    pub metadata: BlockMetadata,
-}
-
-impl ConditionallySelectable for PositionMapUpdate {
-    fn conditional_select(a: &Self, b: &Self, choice: Choice) -> Self {
-        let address = Address::conditional_select(&a.address, &b.address, choice);
-        let metadata = BlockMetadata::conditional_select(&a.metadata, &b.metadata, choice);
-        PositionMapUpdate { address, metadata }
-    }
-}
+use subtle::{ConditionallySelectable, ConstantTimeEq};
 
 /// A recursive Path ORAM position map data structure. `AB` is the number of addresses stored in each ORAM block.
 #[derive(Debug)]

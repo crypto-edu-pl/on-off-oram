@@ -17,22 +17,24 @@ const ARRAY_SIZE: u64 = 1 << 17;
 
 const_assert!(ARRAY_SIZE >= LINEAR_TIME_ORAM_CUTOFF);
 
-const N_ACCESSES: u64 = 1000;
+const N_UNIQUE_ADDRESSES: u64 = 100;
 
-const REPEAT_PERCENTAGES: [u64; 10] = [0, 10, 20, 30, 40, 50, 60, 70, 80, 90];
+const AVERAGE_N_ACCESSES_PER_ADDR: [u64; 10] = [1, 2, 3, 4, 5, 6, 7, 8, 9, 10];
 
 fn benchmark_percentages<O: Oram<V = u64>, R: rand::RngCore + rand::CryptoRng>(
     oram_array: &mut O,
     rng: &mut R,
 ) -> Result<(), oram::OramError> {
-    for repeat_percentage in REPEAT_PERCENTAGES {
-        let n_unique_addresses = (N_ACCESSES * (100 - repeat_percentage)) / 100;
-
-        let mut addresses = (0..n_unique_addresses)
+    for average_n_accesses_per_addr in AVERAGE_N_ACCESSES_PER_ADDR {
+        let mut addresses = (0..N_UNIQUE_ADDRESSES)
             .chain(
-                Uniform::from(0..n_unique_addresses)
+                Uniform::from(0..N_UNIQUE_ADDRESSES)
                     .sample_iter(&mut *rng)
-                    .take(usize::try_from(N_ACCESSES - n_unique_addresses).unwrap()),
+                    .take(
+                        ((average_n_accesses_per_addr - 1) * N_UNIQUE_ADDRESSES)
+                            .try_into()
+                            .unwrap(),
+                    ),
             )
             .collect::<Vec<_>>();
         addresses.shuffle(rng);
@@ -46,7 +48,7 @@ fn benchmark_percentages<O: Oram<V = u64>, R: rand::RngCore + rand::CryptoRng>(
         let access_on_duration = access_on_start.elapsed();
 
         println!(
-            "ON mode: accessed {N_ACCESSES} addresses with {repeat_percentage}% repeats in {access_on_duration:?}"
+            "ON mode: accessed {N_UNIQUE_ADDRESSES} addresses with {average_n_accesses_per_addr} accesses per addr on average in {access_on_duration:?}"
         );
 
         oram_array.turn_off()?;
@@ -66,8 +68,8 @@ fn benchmark_percentages<O: Oram<V = u64>, R: rand::RngCore + rand::CryptoRng>(
         let turn_on_duration = turn_on_start.elapsed();
 
         println!(
-            "OFF mode: accessed {N_ACCESSES} addresses with {repeat_percentage}% repeats in {:?} \
-            (online accesses took {access_off_duration:?}, turning on took {turn_on_duration:?})",
+            "OFF mode: accessed {N_UNIQUE_ADDRESSES} addresses with {average_n_accesses_per_addr} accesses per addr \
+            on average in {:?} (online accesses took {access_off_duration:?}, turning on took {turn_on_duration:?})",
             access_off_duration + turn_on_duration
         );
     }

@@ -96,6 +96,19 @@ use rand::{CryptoRng, RngCore};
 use subtle::ConditionallySelectable;
 use thiserror::Error;
 
+#[cfg(all(
+    feature = "full_reconstruction",
+    any(
+        feature = "do_not_cache_block_values",
+        feature = "direct_accesses_in_off_mode",
+        feature = "exact_locations_in_position_map",
+        feature = "exact_locations_in_position_map_and_batch_position_map",
+        feature = "batched_turning_on",
+        feature = "bypass_oram",
+    )
+))]
+compile_error!("Interactions of `full_reconstruction` with other features are not implemented.");
+
 pub(crate) mod bucket;
 pub mod linear_time_oram;
 pub mod path_oram;

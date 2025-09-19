@@ -7,10 +7,11 @@
 
 //! An implementation of Path ORAM.
 
+#[cfg(not(feature = "full_reconstruction"))]
+use std::mem;
 use std::{
     cmp::{self, min},
     collections::HashMap,
-    mem,
 };
 
 #[cfg(any(
@@ -24,6 +25,7 @@ use std::slice::SliceIndex;
 
 use rand::{CryptoRng, Rng, RngCore};
 
+#[cfg(not(feature = "full_reconstruction"))]
 use subtle::ConstantTimeEq;
 #[cfg(feature = "exact_locations_in_position_map")]
 use subtle::{ConditionallySelectable, ConstantTimeLess};
@@ -620,41 +622,75 @@ impl<V: OramBlock, const Z: BucketSize, const AB: BlockSize> Oram for PathOram<V
                     {
                         #[cfg(not(feature = "do_not_cache_block_values"))]
                         {
-                            let value: &mut V = match self
-                                .blocks_accessed_in_off_mode
-                                .entry(address)
-                            {
-                                hash_map::Entry::Occupied(occupied) => occupied.into_mut(),
-                                hash_map::Entry::Vacant(vacant) => {
-                                    let metadata = self.position_map.read(address, rng)?;
+                            let value: &mut V =
+                                match self.blocks_accessed_in_off_mode.entry(address) {
+                                    hash_map::Entry::Occupied(occupied) => occupied.into_mut(),
+                                    hash_map::Entry::Vacant(vacant) => {
+                                        let metadata = self.position_map.read(address, rng)?;
 
-                                    let mut result = V::default();
-                                    let mut bucket_idx = usize::try_from(metadata.assigned_leaf)?;
+                                        let result = {
+                                            #[cfg(not(feature = "full_reconstruction"))]
+                                            {
+                                                let mut result = V::default();
+                                                let mut bucket_idx =
+                                                    usize::try_from(metadata.assigned_leaf)?;
 
-                                    // We still need this to be oblivious, because the exact locations of blocks depend on the paths assigned to other blocks
-                                    while bucket_idx > 0 {
-                                        for block in &self.physical_memory[bucket_idx].blocks {
-                                            let is_requested_block = block.address.ct_eq(&address);
-                                            result.conditional_assign(
-                                                &block.value,
-                                                is_requested_block,
-                                            );
-                                        }
-                                        bucket_idx >>= 1;
+                                                // We still need this to be oblivious, because the exact locations of blocks depend on the paths assigned to other blocks
+                                                while bucket_idx > 0 {
+                                                    for block in
+                                                        &self.physical_memory[bucket_idx].blocks
+                                                    {
+                                                        let is_requested_block =
+                                                            block.address.ct_eq(&address);
+                                                        result.conditional_assign(
+                                                            &block.value,
+                                                            is_requested_block,
+                                                        );
+                                                    }
+                                                    bucket_idx >>= 1;
+                                                }
+
+                                                for entry in &self.stash.entries {
+                                                    let is_requested_block =
+                                                        entry.block.address.ct_eq(&address);
+                                                    result.conditional_assign(
+                                                        &entry.block.value,
+                                                        is_requested_block,
+                                                    );
+                                                }
+                                                result
+                                            }
+
+                                            #[cfg(feature = "full_reconstruction")]
+                                            'result: {
+                                                let mut bucket_idx =
+                                                    usize::try_from(metadata.assigned_leaf)?;
+
+                                                // We do not need this to be oblivious, since we're going to reconstruct the full ORAM tree anyway
+                                                while bucket_idx > 0 {
+                                                    for block in
+                                                        &self.physical_memory[bucket_idx].blocks
+                                                    {
+                                                        if block.address == address {
+                                                            break 'result block.value;
+                                                        }
+                                                    }
+                                                    bucket_idx >>= 1;
+                                                }
+
+                                                for entry in &self.stash.entries {
+                                                    if entry.block.address == address {
+                                                        break 'result entry.block.value;
+                                                    }
+                                                }
+
+                                                V::default()
+                                            }
+                                        };
+
+                                        vacant.insert(result)
                                     }
-
-                                    for entry in &self.stash.entries {
-                                        let is_requested_block =
-                                            entry.block.address.ct_eq(&address);
-                                        result.conditional_assign(
-                                            &entry.block.value,
-                                            is_requested_block,
-                                        );
-                                    }
-
-                                    vacant.insert(result)
-                                }
-                            };
+                                };
 
                             let result = *value;
                             *value = callback(value);
@@ -829,8 +865,22 @@ impl<V: OramBlock, const Z: BucketSize, const AB: BlockSize> Oram for PathOram<V
 
             #[cfg(not(feature = "do_not_cache_block_values"))]
             {
-                for (address, value) in mem::take(&mut self.blocks_accessed_in_off_mode) {
-                    self.write(address, value, rng)?;
+                #[cfg(not(feature = "full_reconstruction"))]
+                {
+                    for (address, value) in mem::take(&mut self.blocks_accessed_in_off_mode) {
+                        self.write(address, value, rng)?;
+                    }
+                }
+
+                #[cfg(feature = "full_reconstruction")]
+                {
+                    for address in 0..self.block_capacity()? {
+                        if let Some(value) = self.blocks_accessed_in_off_mode.remove(&address) {
+                            self.write(address, value, rng)?;
+                        } else {
+                            self.read(address, rng)?;
+                        }
+                    }
                 }
             }
         }

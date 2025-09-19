@@ -32,6 +32,7 @@ exact_locations_in_position_map = ["direct_accesses_in_off_mode"]
 exact_locations_in_position_map_and_batch_position_map = ["exact_locations_in_position_map"]
 batched_turning_on = []
 bypass_oram = []
+full_reconstruction = []
 
 [[bench]]
 name = "benchmark"

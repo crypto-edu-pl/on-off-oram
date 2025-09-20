@@ -57,6 +57,18 @@ impl Div<u32> for BenchmarkResult {
     }
 }
 
+struct BenchmarkStats {
+    access_on_duration: Stats,
+    off_total_duration: Stats,
+    access_off_duration: Stats,
+    turn_on_duration: Stats,
+}
+
+struct Stats {
+    mean: Duration,
+    stddev: Duration,
+}
+
 fn benchmark_percentages<O: Oram<V = u64>, R: rand::RngCore + rand::CryptoRng>(
     oram_array: &mut O,
     rng: &mut R,
@@ -106,6 +118,47 @@ fn benchmark_percentages<O: Oram<V = u64>, R: rand::RngCore + rand::CryptoRng>(
     })
 }
 
+fn mean_and_standard_deviation(data: &[Duration]) -> Stats {
+    let mean =
+        data.iter().copied().reduce(|acc, x| acc + x).unwrap() / u32::try_from(data.len()).unwrap();
+    let variance = data
+        .iter()
+        .map(|x| {
+            let diff = (*x - mean).as_nanos();
+            diff * diff
+        })
+        .reduce(|acc, x| acc + x)
+        .unwrap()
+        / u128::try_from(data.len() - 1).unwrap();
+    let stddev = Duration::from_nanos(variance.isqrt().try_into().unwrap());
+    Stats { mean, stddev }
+}
+
+fn benchmark_stats(results: &[BenchmarkResult]) -> BenchmarkStats {
+    let access_on_durations = results
+        .iter()
+        .map(|x| x.access_on_duration)
+        .collect::<Vec<_>>();
+    let off_total_durations = results
+        .iter()
+        .map(|result| result.access_off_duration + result.turn_on_duration)
+        .collect::<Vec<_>>();
+    let access_off_durations = results
+        .iter()
+        .map(|x| x.access_off_duration)
+        .collect::<Vec<_>>();
+    let turn_on_durations = results
+        .iter()
+        .map(|x| x.turn_on_duration)
+        .collect::<Vec<_>>();
+    BenchmarkStats {
+        access_on_duration: mean_and_standard_deviation(&access_on_durations),
+        off_total_duration: mean_and_standard_deviation(&off_total_durations),
+        access_off_duration: mean_and_standard_deviation(&access_off_durations),
+        turn_on_duration: mean_and_standard_deviation(&turn_on_durations),
+    }
+}
+
 fn main() {
     SimpleLogger::init(LevelFilter::Trace, simplelog::Config::default()).unwrap();
 
@@ -132,22 +185,32 @@ fn main() {
     println!("Averaging over {N_BENCHMARK_REPETITIONS} repetitions");
 
     for average_n_accesses_per_addr in AVERAGE_N_ACCESSES_PER_ADDR {
-        let average_result = iter::repeat_with(|| {
+        let results = iter::repeat_with(|| {
             benchmark_percentages(&mut oram_array, &mut rng, average_n_accesses_per_addr).unwrap()
         })
         .take(N_BENCHMARK_REPETITIONS.try_into().unwrap())
-        .reduce(|acc, x| acc + x)
-        .unwrap()
-            / N_BENCHMARK_REPETITIONS;
+        .collect::<Vec<_>>();
+
+        let BenchmarkStats {
+            access_on_duration,
+            off_total_duration,
+            access_off_duration,
+            turn_on_duration,
+        } = benchmark_stats(&results);
+
         println!(
-            "ON mode: accessed {N_UNIQUE_ADDRESSES} addresses with {average_n_accesses_per_addr} accesses per addr on average in {:?}", average_result.access_on_duration
+            "ON mode: accessed {N_UNIQUE_ADDRESSES} addresses with {average_n_accesses_per_addr} accesses per addr on average in {:?} +- {:?}",
+            access_on_duration.mean, access_on_duration.stddev
         );
         println!(
             "OFF mode: accessed {N_UNIQUE_ADDRESSES} addresses with {average_n_accesses_per_addr} accesses per addr \
-            on average in {:?} (online accesses took {:?}, turning on took {:?})",
-            average_result.access_off_duration + average_result.turn_on_duration,
-            average_result.access_off_duration,
-            average_result.turn_on_duration
+            on average in {:?} +- {:?} (online accesses took {:?} +- {:?}, turning on took {:?} +- {:?})",
+            off_total_duration.mean,
+            off_total_duration.stddev,
+            access_off_duration.mean,
+            access_off_duration.stddev,
+            turn_on_duration.mean,
+            turn_on_duration.stddev
         );
     }
 }

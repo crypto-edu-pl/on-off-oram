@@ -124,7 +124,7 @@ fn mean_and_standard_deviation(data: &[Duration]) -> Stats {
     let variance = data
         .iter()
         .map(|x| {
-            let diff = (*x - mean).as_nanos();
+            let diff = (x.abs_diff(mean)).as_nanos();
             diff * diff
         })
         .reduce(|acc, x| acc + x)

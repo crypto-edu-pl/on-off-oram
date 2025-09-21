@@ -1,7 +1,9 @@
 use std::collections::HashSet;
-use std::time::Instant;
+use std::iter;
+use std::time::{Duration, Instant};
 
 use log::LevelFilter;
+use oram::bin_utils::{benchmark_stats, BenchmarkResult, BenchmarkStats};
 use oram::{hashset::OramHashSet, OramBlock};
 use oram::{path_oram::LINEAR_TIME_ORAM_CUTOFF, Oram, OramError};
 use rand::{rngs::OsRng, CryptoRng, RngCore};
@@ -13,6 +15,8 @@ const MAX_WORD_SIZE: usize = 28;
 const HASHSET_CAPACITY: u64 = 1 << 20;
 
 const_assert!(HASHSET_CAPACITY >= LINEAR_TIME_ORAM_CUTOFF);
+
+const N_BENCHMARK_REPETITIONS: u32 = 20;
 
 #[derive(Default, Copy, Clone, PartialEq, Eq, Debug, Hash)]
 struct DictEntry([u8; MAX_WORD_SIZE]);
@@ -61,20 +65,14 @@ fn spellcheck<R: RngCore + CryptoRng>(
     text: &[DictEntry],
     dictionary: &mut OramHashSet<DictEntry>,
     rng: &mut R,
-) -> Result<Vec<bool>, OramError> {
-    let mut result = Vec::with_capacity(text.len());
-
+) -> Result<Duration, OramError> {
     let start = Instant::now();
 
     for word in text {
-        result.push(dictionary.contains(*word, rng)?);
+        dictionary.contains(*word, rng)?;
     }
 
-    let duration = start.elapsed();
-
-    println!("Checked in {:?}", duration);
-
-    Ok(result)
+    Ok(start.elapsed())
 }
 
 fn main() {
@@ -110,21 +108,48 @@ fn main() {
 
     println!("Prepared dictionary in {:?}", duration);
 
-    println!("ORAM on:");
+    println!("Averaging over {N_BENCHMARK_REPETITIONS} repetitions");
 
-    spellcheck(&body_parts, &mut dictionary, &mut rng).unwrap();
+    let results = iter::repeat_with(|| {
+        let access_on_duration = spellcheck(&body_parts, &mut dictionary, &mut rng).unwrap();
 
-    println!("ORAM off:");
+        dictionary.array.turn_off().unwrap();
 
-    dictionary.array.turn_off().unwrap();
+        let access_off_duration = spellcheck(&body_parts, &mut dictionary, &mut rng).unwrap();
 
-    spellcheck(&body_parts, &mut dictionary, &mut rng).unwrap();
+        let turn_on_start = Instant::now();
 
-    let start = Instant::now();
+        dictionary.array.turn_on(&mut rng).unwrap();
 
-    dictionary.array.turn_on(&mut rng).unwrap();
+        let turn_on_duration = turn_on_start.elapsed();
 
-    let duration = start.elapsed();
+        BenchmarkResult {
+            access_on_duration,
+            access_off_duration,
+            turn_on_duration,
+        }
+    })
+    .take(N_BENCHMARK_REPETITIONS.try_into().unwrap())
+    .collect::<Vec<_>>();
 
-    println!("Turned on in {:?}", duration);
+    let BenchmarkStats {
+        access_on_duration,
+        off_total_duration,
+        access_off_duration,
+        turn_on_duration,
+    } = benchmark_stats(&results);
+
+    println!(
+        "ON mode: checked in {:?} +- {:?}",
+        access_on_duration.mean, access_on_duration.stddev
+    );
+    println!(
+        "OFF mode: checked in {:?} +- {:?} (online accesses took {:?} +- {:?}, turning on took {:?} +- {:?})",
+        off_total_duration.mean,
+        off_total_duration.stddev,
+        access_off_duration.mean,
+        access_off_duration.stddev,
+        turn_on_duration.mean,
+        turn_on_duration.stddev
+    );
 }

@@ -124,6 +124,9 @@ pub mod hashset;
 /// A fake "ORAM" that actually just does plain memory accesses (as a baseline for performance comparisions)
 pub mod not_really_oram;
 
+/// Helpers for the binaries
+pub mod bin_utils;
+
 pub use crate::bucket::BlockValue;
 pub use crate::path_oram::DefaultOram;
 pub use crate::path_oram::PathOram;

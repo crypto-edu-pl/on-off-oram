@@ -1,15 +1,15 @@
-use std::{
-    iter,
-    ops::{Add, Div},
-    time::{Duration, Instant},
-};
+use std::{iter, time::Instant};
 
 use log::LevelFilter;
 use rand::{distributions::Uniform, prelude::Distribution, rngs::OsRng, seq::SliceRandom};
 use simplelog::SimpleLogger;
 use static_assertions::const_assert;
 
-use oram::{path_oram::LINEAR_TIME_ORAM_CUTOFF, Oram};
+use oram::{
+    bin_utils::{benchmark_stats, BenchmarkResult, BenchmarkStats},
+    path_oram::LINEAR_TIME_ORAM_CUTOFF,
+    Oram,
+};
 
 #[cfg(not(feature = "bypass_oram"))]
 use oram::DefaultOram;
@@ -26,48 +26,6 @@ const N_UNIQUE_ADDRESSES: u64 = 100;
 const AVERAGE_N_ACCESSES_PER_ADDR: [u64; 10] = [1, 2, 3, 4, 5, 6, 7, 8, 9, 10];
 
 const N_BENCHMARK_REPETITIONS: u32 = 20;
-
-struct BenchmarkResult {
-    access_on_duration: Duration,
-    access_off_duration: Duration,
-    turn_on_duration: Duration,
-}
-
-impl Add for BenchmarkResult {
-    type Output = Self;
-
-    fn add(self, other: Self) -> Self {
-        BenchmarkResult {
-            access_on_duration: self.access_on_duration + other.access_on_duration,
-            access_off_duration: self.access_off_duration + other.access_off_duration,
-            turn_on_duration: self.turn_on_duration + other.turn_on_duration,
-        }
-    }
-}
-
-impl Div<u32> for BenchmarkResult {
-    type Output = Self;
-
-    fn div(self, rhs: u32) -> Self {
-        BenchmarkResult {
-            access_on_duration: self.access_on_duration / rhs,
-            access_off_duration: self.access_off_duration / rhs,
-            turn_on_duration: self.turn_on_duration / rhs,
-        }
-    }
-}
-
-struct BenchmarkStats {
-    access_on_duration: Stats,
-    off_total_duration: Stats,
-    access_off_duration: Stats,
-    turn_on_duration: Stats,
-}
-
-struct Stats {
-    mean: Duration,
-    stddev: Duration,
-}
 
 fn benchmark_percentages<O: Oram<V = u64>, R: rand::RngCore + rand::CryptoRng>(
     oram_array: &mut O,
@@ -116,47 +74,6 @@ fn benchmark_percentages<O: Oram<V = u64>, R: rand::RngCore + rand::CryptoRng>(
         access_off_duration,
         turn_on_duration,
     })
-}
-
-fn mean_and_standard_deviation(data: &[Duration]) -> Stats {
-    let mean =
-        data.iter().copied().reduce(|acc, x| acc + x).unwrap() / u32::try_from(data.len()).unwrap();
-    let variance = data
-        .iter()
-        .map(|x| {
-            let diff = (x.abs_diff(mean)).as_nanos();
-            diff * diff
-        })
-        .reduce(|acc, x| acc + x)
-        .unwrap()
-        / u128::try_from(data.len() - 1).unwrap();
-    let stddev = Duration::from_nanos(variance.isqrt().try_into().unwrap());
-    Stats { mean, stddev }
-}
-
-fn benchmark_stats(results: &[BenchmarkResult]) -> BenchmarkStats {
-    let access_on_durations = results
-        .iter()
-        .map(|x| x.access_on_duration)
-        .collect::<Vec<_>>();
-    let off_total_durations = results
-        .iter()
-        .map(|result| result.access_off_duration + result.turn_on_duration)
-        .collect::<Vec<_>>();
-    let access_off_durations = results
-        .iter()
-        .map(|x| x.access_off_duration)
-        .collect::<Vec<_>>();
-    let turn_on_durations = results
-        .iter()
-        .map(|x| x.turn_on_duration)
-        .collect::<Vec<_>>();
-    BenchmarkStats {
-        access_on_duration: mean_and_standard_deviation(&access_on_durations),
-        off_total_duration: mean_and_standard_deviation(&off_total_durations),
-        access_off_duration: mean_and_standard_deviation(&access_off_durations),
-        turn_on_duration: mean_and_standard_deviation(&turn_on_durations),
-    }
 }
 
 fn main() {

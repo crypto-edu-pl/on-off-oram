@@ -1,7 +1,7 @@
 use std::{iter, time::Instant};
 
 use log::LevelFilter;
-use rand::{distributions::Uniform, prelude::Distribution, rngs::OsRng, seq::SliceRandom};
+use rand::{distributions::Uniform, prelude::Distribution, random, rngs::OsRng, seq::SliceRandom};
 use simplelog::SimpleLogger;
 use static_assertions::const_assert;
 
@@ -99,6 +99,16 @@ fn main() {
     let duration = start.elapsed();
 
     println!("Initialized ORAM in {:?}", duration);
+
+    let start = Instant::now();
+
+    for i in 0..ARRAY_SIZE {
+        oram_array.write(i, random(), &mut rng).unwrap();
+    }
+
+    let duration = start.elapsed();
+
+    println!("Prepared array in {:?}", duration);
 
     println!("Averaging over {N_BENCHMARK_REPETITIONS} repetitions");
 

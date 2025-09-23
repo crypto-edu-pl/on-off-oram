@@ -6,7 +6,7 @@ else
 GRAMINE_LOG_LEVEL = error
 endif
 
-TESTS = binsearch_simple spellcheck
+TESTS = binsearch_simple spellcheck speedup
 
 all: $(TESTS)
 

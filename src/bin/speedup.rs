@@ -32,15 +32,13 @@ const AVERAGE_N_ACCESSES_PER_ADDR: [u64; 10] = [1, 2, 3, 4, 5, 6, 7, 8, 9, 10];
 
 const N_BENCHMARK_REPETITIONS: u32 = 20;
 
-fn benchmark_percentages<O: Oram<V = u64>, R: rand::RngCore + rand::CryptoRng>(
-    oram_array: &mut O,
+fn gen_addresses<R: rand::RngCore + rand::CryptoRng>(
     rng: &mut R,
     n_unique_addresses: u64,
     average_n_accesses_per_addr: u64,
-) -> Result<BenchmarkResult, oram::OramError> {
-    let mut unique_addresses =
+) -> Vec<u64> {
+    let unique_addresses =
         (0..ARRAY_SIZE).choose_multiple(rng, n_unique_addresses.try_into().unwrap());
-    unique_addresses.shuffle(rng);
     let mut addresses = unique_addresses
         .iter()
         .copied()
@@ -57,20 +55,32 @@ fn benchmark_percentages<O: Oram<V = u64>, R: rand::RngCore + rand::CryptoRng>(
         )
         .collect::<Vec<_>>();
     addresses.shuffle(rng);
+    addresses
+}
+
+fn benchmark_percentages<O: Oram<V = u64>, R: rand::RngCore + rand::CryptoRng>(
+    oram_array: &mut O,
+    rng: &mut R,
+    n_unique_addresses: u64,
+    average_n_accesses_per_addr: u64,
+) -> Result<BenchmarkResult, oram::OramError> {
+    let on_addresses = gen_addresses(rng, n_unique_addresses, average_n_accesses_per_addr);
 
     let access_on_start = Instant::now();
 
-    for address in &addresses {
+    for address in &on_addresses {
         let _ = oram_array.read(*address, rng)?;
     }
 
     let access_on_duration = access_on_start.elapsed();
 
+    let off_addresses = gen_addresses(rng, n_unique_addresses, average_n_accesses_per_addr);
+
     oram_array.turn_off()?;
 
     let access_off_start = Instant::now();
 
-    for address in &addresses {
+    for address in &off_addresses {
         let _ = oram_array.read(*address, rng)?;
     }
 

@@ -84,7 +84,6 @@ impl<V: OramHashSetData> OramHashSet<V> {
 
         let tag = u8::try_from(hash >> (u64::BITS - 7))?;
 
-        // TODO this could be read from ORAM using batching instead
         for _ in 0..Self::N_CHECKED_GROUPS {
             let mut entries = Vec::with_capacity(Self::GROUP_WIDTH.try_into()?);
             for i in 0..Self::GROUP_WIDTH {

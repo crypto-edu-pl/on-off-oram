@@ -89,7 +89,6 @@ impl<V: OramBlock> ObliviousStash<V> {
         // Make the stash larger - path_size * path_size - so that it can fit the paths of a batch
         // of size path_size (this means that on a single Path ORAM access we can update the position map
         // in a single top-level batch)
-        // TODO think if other stash and batch sizes make more sense
         let num_stash_blocks: usize = ((path_size + overflow_size) * max_batch_size).try_into()?;
 
         Ok(Self {

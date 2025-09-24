@@ -665,11 +665,13 @@ impl<V: OramBlock, const Z: BucketSize, const AB: BlockSize> Oram for PathOram<V
 
                                             #[cfg(feature = "full_reconstruction")]
                                             'result: {
-                                                let mut bucket_idx =
-                                                    usize::try_from(metadata.assigned_leaf)?;
-
                                                 // We do not need this to be oblivious, since we're going to reconstruct the full ORAM tree anyway
-                                                while bucket_idx > 0 {
+                                                // We search the ORAM tree from the top to take advantage of locality of references (recently accessed)
+                                                // blocks are likely to be near the root)
+                                                for i in (0..=self.height).rev() {
+                                                    let bucket_idx =
+                                                        usize::try_from(metadata.assigned_leaf)?
+                                                            >> i;
                                                     for block in
                                                         &self.physical_memory[bucket_idx].blocks
                                                     {
@@ -677,7 +679,6 @@ impl<V: OramBlock, const Z: BucketSize, const AB: BlockSize> Oram for PathOram<V
                                                             break 'result block.value;
                                                         }
                                                     }
-                                                    bucket_idx >>= 1;
                                                 }
 
                                                 for entry in &self.stash.entries {

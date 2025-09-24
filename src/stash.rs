@@ -86,9 +86,6 @@ impl<V: OramBlock> ObliviousStash<V> {
         max_batch_size: StashSize,
         oram_block_capacity: u64,
     ) -> Result<Self, OramError> {
-        // Make the stash larger - path_size * path_size - so that it can fit the paths of a batch
-        // of size path_size (this means that on a single Path ORAM access we can update the position map
-        // in a single top-level batch)
         let num_stash_blocks: usize = ((path_size + overflow_size) * max_batch_size).try_into()?;
 
         Ok(Self {

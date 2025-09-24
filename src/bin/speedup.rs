@@ -22,15 +22,15 @@ use oram::DefaultOram;
 #[cfg(feature = "bypass_oram")]
 use oram::not_really_oram::NotReallyOram;
 
-const ARRAY_SIZE: u64 = 1 << 17;
+const ARRAY_SIZE: u64 = 1 << 14;
 
 const_assert!(ARRAY_SIZE >= LINEAR_TIME_ORAM_CUTOFF);
 
 const N_UNIQUE_ADDRESSES: [u64; 1] = [100];
 
-const AVERAGE_N_ACCESSES_PER_ADDR: [u64; 10] = [1, 2, 3, 4, 5, 6, 7, 8, 9, 10];
+const AVERAGE_N_ACCESSES_PER_ADDR: [u64; 11] = [1, 10, 20, 30, 40, 50, 60, 70, 80, 90, 100];
 
-const N_BENCHMARK_REPETITIONS: u32 = 20;
+const N_BENCHMARK_REPETITIONS: u32 = 100;
 
 fn gen_addresses<R: rand::RngCore + rand::CryptoRng>(
     rng: &mut R,
@@ -155,20 +155,29 @@ fn main() {
                 turn_on_duration,
             } = benchmark_stats(&results);
 
-            println!(
-                "ON mode: accessed {n_unique_addresses} addresses with {average_n_accesses_per_addr} accesses per addr on average in {:?} +- {:?}",
-                access_on_duration.mean, access_on_duration.stddev
-            );
-            println!(
-                "OFF mode: accessed {n_unique_addresses} addresses with {average_n_accesses_per_addr} accesses per addr \
-                on average in {:?} +- {:?} (online accesses took {:?} +- {:?}, turning on took {:?} +- {:?})",
-                off_total_duration.mean,
-                off_total_duration.stddev,
-                access_off_duration.mean,
-                access_off_duration.stddev,
-                turn_on_duration.mean,
-                turn_on_duration.stddev
-            );
+            // println!(
+            //     "ON mode: accessed {n_unique_addresses} addresses with {average_n_accesses_per_addr} accesses per addr on average in {:?} +- {:?}",
+            //     access_on_duration.mean, access_on_duration.stddev
+            // );
+            // println!(
+            //     "OFF mode: accessed {n_unique_addresses} addresses with {average_n_accesses_per_addr} accesses per addr \
+            //     on average in {:?} +- {:?} (online accesses took {:?} +- {:?}, turning on took {:?} +- {:?})",
+            //     off_total_duration.mean,
+            //     off_total_duration.stddev,
+            //     access_off_duration.mean,
+            //     access_off_duration.stddev,
+            //     turn_on_duration.mean,
+            //     turn_on_duration.stddev
+            // );
+            for stat in [
+                access_on_duration,
+                off_total_duration,
+                access_off_duration,
+                turn_on_duration,
+            ] {
+                print!("{}; {}; ", stat.mean.as_nanos(), stat.stddev.as_nanos());
+            }
+            println!();
         }
     }
 }

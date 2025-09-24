@@ -17,7 +17,7 @@ use crate::{
     StashSize,
 };
 use rand::{
-    distributions::{Distribution, Standard},
+    distr::{Distribution, StandardUniform},
     rngs::StdRng,
     Rng, SeedableRng,
 };
@@ -40,7 +40,7 @@ pub(crate) fn init_logger() {
 /// Tests the correctness of an `ORAM` implementation T on a workload of random reads and writes.
 pub(crate) fn random_workload<T: Oram>(oram: &mut T, num_operations: usize)
 where
-    Standard: Distribution<T::V>,
+    StandardUniform: Distribution<T::V>,
 {
     init_logger();
     let mut rng = StdRng::seed_from_u64(0);
@@ -49,10 +49,10 @@ where
     let mut mirror_array = vec![T::V::default(); usize::try_from(capacity).unwrap()];
 
     for _ in 0..num_operations {
-        let random_index = rng.gen_range(0..capacity);
-        let random_block_value = rng.gen::<T::V>();
+        let random_index = rng.random_range(0..capacity);
+        let random_block_value = rng.random::<T::V>();
 
-        let read_versus_write = rng.gen::<bool>();
+        let read_versus_write = rng.random::<bool>();
 
         if read_versus_write {
             assert_eq!(
@@ -78,7 +78,7 @@ where
 /// Tests the correctness of an `Oram` type T on repeated passes of sequential accesses 0, 1, ..., `capacity`
 pub(crate) fn linear_workload<T: Oram + Debug>(oram: &mut T, num_operations: u64)
 where
-    Standard: Distribution<T::V>,
+    StandardUniform: Distribution<T::V>,
 {
     init_logger();
     let mut rng = StdRng::seed_from_u64(0);
@@ -90,9 +90,9 @@ where
 
     for _ in 0..num_passes {
         for index in 0..capacity {
-            let random_block_value = rng.gen::<T::V>();
+            let random_block_value = rng.random::<T::V>();
 
-            let read_versus_write: bool = rng.gen::<bool>();
+            let read_versus_write: bool = rng.random::<bool>();
 
             if read_versus_write {
                 assert_eq!(

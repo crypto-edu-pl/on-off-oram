@@ -10,7 +10,7 @@
 extern crate oram;
 
 use oram::{Address, BlockSize, BlockValue, DefaultOram, Oram, OramError};
-use rand::{rngs::OsRng, Rng};
+use rand::{rng, Rng};
 
 const BLOCK_SIZE: BlockSize = 4096;
 const DB_SIZE: Address = 64;
@@ -18,7 +18,7 @@ const DB_SIZE: Address = 64;
 static DATABASE: [[u8; BLOCK_SIZE]; DB_SIZE as usize] = [[0; BLOCK_SIZE]; DB_SIZE as usize];
 
 fn main() -> Result<(), OramError> {
-    let mut rng = OsRng;
+    let mut rng = rng();
     let mut oram = DefaultOram::<BlockValue<4096>>::new(DB_SIZE, &mut rng)?;
 
     // Read DATABASE into oram.
@@ -29,7 +29,7 @@ fn main() -> Result<(), OramError> {
     // Now oram can be used to obliviously serve the contents of DATABASE.
     let num_operations = 100;
     for _ in 0..num_operations {
-        let random_index = rng.gen_range(0..DB_SIZE);
+        let random_index = rng.random_range(0..DB_SIZE);
 
         let _ = oram.read(random_index, &mut rng)?;
     }

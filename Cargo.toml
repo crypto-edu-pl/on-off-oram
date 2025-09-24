@@ -13,7 +13,7 @@ categories = ["cryptography"]
 
 [dependencies]
 subtle = "2"
-rand = "0.8"
+rand = "0.9"
 log = "0.4"
 thiserror = "1"
 static_assertions = "1"

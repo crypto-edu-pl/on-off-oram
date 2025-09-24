@@ -55,7 +55,7 @@ impl CompleteBinaryTreeIndex for TreeIndex {
         rng: &mut R,
     ) -> Result<Self, TryFromIntError> {
         let tree_height: u32 = tree_height.try_into()?;
-        let result = 2u64.pow(tree_height) + rng.gen_range(0..2u64.pow(tree_height));
+        let result = 2u64.pow(tree_height) + rng.random_range(0..2u64.pow(tree_height));
         // The value we've just generated is at least the first summand, which is at least 1.
         assert_ne!(result, 0);
         Ok(result)
@@ -68,7 +68,7 @@ impl CompleteBinaryTreeIndex for TreeIndex {
     ) -> Result<Vec<Self>, TryFromIntError> {
         let tree_height: u32 = tree_height.try_into()?;
         let result = iter::repeat_with(|| {
-            let leaf = 2u64.pow(tree_height) + rng.gen_range(0..2u64.pow(tree_height));
+            let leaf = 2u64.pow(tree_height) + rng.random_range(0..2u64.pow(tree_height));
             assert_ne!(leaf, 0);
             leaf
         })

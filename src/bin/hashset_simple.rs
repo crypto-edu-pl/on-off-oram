@@ -3,7 +3,7 @@ use std::time::Instant;
 use log::LevelFilter;
 use oram::hashset::OramHashSet;
 use oram::{path_oram::LINEAR_TIME_ORAM_CUTOFF, Oram};
-use rand::{distributions::Standard, rngs::OsRng, CryptoRng, Rng, RngCore};
+use rand::{distr::StandardUniform, rng, CryptoRng, Rng, RngCore};
 use simplelog::SimpleLogger;
 use static_assertions::const_assert;
 
@@ -13,7 +13,7 @@ const_assert!(ARRAY_SIZE >= LINEAR_TIME_ORAM_CUTOFF);
 
 fn benchmark_lookups<R: RngCore + CryptoRng>(oram_hash_set: &mut OramHashSet<u64>, rng: &mut R) {
     for _ in 0..20 {
-        let search_val = rng.gen::<u64>();
+        let search_val = rng.random::<u64>();
 
         let start = Instant::now();
 
@@ -28,12 +28,12 @@ fn benchmark_lookups<R: RngCore + CryptoRng>(oram_hash_set: &mut OramHashSet<u64
 fn main() {
     SimpleLogger::init(LevelFilter::Trace, simplelog::Config::default()).unwrap();
 
-    let mut rng = OsRng;
+    let mut rng = rng();
 
     let mut oram_hash_set = OramHashSet::<u64>::new(ARRAY_SIZE, &mut rng).unwrap();
 
     let values = (&mut rng)
-        .sample_iter(Standard)
+        .sample_iter(StandardUniform)
         .take((ARRAY_SIZE / 4) as usize)
         .collect::<Vec<u64>>();
 

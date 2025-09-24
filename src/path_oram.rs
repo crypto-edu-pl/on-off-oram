@@ -25,6 +25,8 @@ use std::slice::SliceIndex;
 
 use rand::{CryptoRng, Rng, RngCore};
 
+#[cfg(feature = "batched_turning_on")]
+use static_assertions::const_assert;
 #[cfg(not(feature = "full_reconstruction"))]
 use subtle::ConstantTimeEq;
 #[cfg(feature = "exact_locations_in_position_map")]
@@ -330,7 +332,7 @@ impl<V: OramBlock, const Z: BucketSize, const AB: BlockSize> PathOram<V, Z, AB> 
         for block_index in 0..num_address_blocks {
             let mut data = [BlockMetadata::default(); AB];
             for metadata in &mut data {
-                metadata.assigned_leaf = rng.gen_range(first_leaf_index..=last_leaf_index);
+                metadata.assigned_leaf = rng.random_range(first_leaf_index..=last_leaf_index);
                 #[cfg(feature = "exact_locations_in_position_map")]
                 {
                     metadata.exact_bucket = BlockMetadata::NOT_IN_TREE;
@@ -887,8 +889,8 @@ impl<V: OramBlock, const Z: BucketSize, const AB: BlockSize> Oram for PathOram<V
 
         #[cfg(feature = "batched_turning_on")]
         {
-            const _UNIMPLEMENTED_COMBINATION: () =
-                assert!(cfg!(feature = "direct_accesses_in_off_mode"));
+            // The case with this feature disabled is not implemented
+            const_assert!(cfg!(feature = "direct_accesses_in_off_mode"));
 
             let addresses = mem::take(&mut self.blocks_accessed_in_off_mode)
                 .keys()

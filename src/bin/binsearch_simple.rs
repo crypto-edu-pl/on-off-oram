@@ -5,7 +5,7 @@ use std::{
 };
 
 use log::LevelFilter;
-use rand::{distributions::Uniform, prelude::Distribution, rngs::OsRng, CryptoRng, RngCore};
+use rand::{distr::Uniform, prelude::Distribution, rng, CryptoRng, RngCore};
 use simplelog::SimpleLogger;
 use static_assertions::const_assert;
 
@@ -65,7 +65,7 @@ fn benchmark_searches<O: Oram<V = u64>, R: RngCore + CryptoRng>(
 fn main() {
     SimpleLogger::init(LevelFilter::Trace, simplelog::Config::default()).unwrap();
 
-    let mut rng = OsRng;
+    let mut rng = rng();
 
     let start = Instant::now();
 
@@ -88,7 +88,7 @@ fn main() {
     println!("Averaging over {N_BENCHMARK_REPETITIONS} repetitions");
 
     let results = iter::repeat_with(|| {
-        let distribution = Uniform::from(0..ARRAY_SIZE);
+        let distribution = Uniform::try_from(0..ARRAY_SIZE).unwrap();
 
         let mut values = distribution
             .sample_iter(&mut rng)

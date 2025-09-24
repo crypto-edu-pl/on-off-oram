@@ -6,7 +6,7 @@ use log::LevelFilter;
 use oram::bin_utils::{benchmark_stats, BenchmarkResult, BenchmarkStats};
 use oram::{hashset::OramHashSet, OramBlock};
 use oram::{path_oram::LINEAR_TIME_ORAM_CUTOFF, Oram, OramError};
-use rand::{rngs::OsRng, CryptoRng, RngCore};
+use rand::{rng, CryptoRng, RngCore};
 use simplelog::SimpleLogger;
 use static_assertions::const_assert;
 use subtle::{Choice, ConditionallySelectable, ConstantTimeEq};
@@ -86,7 +86,7 @@ fn main() {
     let mut dictionary_entries = HashSet::new();
     dictionary_entries.extend(&body_parts);
 
-    let mut rng = OsRng;
+    let mut rng = rng();
 
     let start = Instant::now();
 

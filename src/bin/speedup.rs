@@ -1,7 +1,7 @@
 use std::{iter, time::Instant};
 
 use log::LevelFilter;
-use rand::{distributions::Uniform, prelude::Distribution, random, rngs::OsRng, seq::SliceRandom};
+use rand::{distr::Uniform, prelude::Distribution, random, rng, seq::SliceRandom};
 use simplelog::SimpleLogger;
 use static_assertions::const_assert;
 
@@ -35,7 +35,8 @@ fn benchmark_percentages<O: Oram<V = u64>, R: rand::RngCore + rand::CryptoRng>(
 ) -> Result<BenchmarkResult, oram::OramError> {
     let mut addresses = (0..n_unique_addresses)
         .chain(
-            Uniform::from(0..n_unique_addresses)
+            Uniform::try_from(0..n_unique_addresses)
+                .unwrap()
                 .sample_iter(&mut *rng)
                 .take(
                     ((average_n_accesses_per_addr - 1) * n_unique_addresses)
@@ -80,7 +81,7 @@ fn benchmark_percentages<O: Oram<V = u64>, R: rand::RngCore + rand::CryptoRng>(
 fn main() {
     SimpleLogger::init(LevelFilter::Trace, simplelog::Config::default()).unwrap();
 
-    let mut rng = OsRng;
+    let mut rng = rng();
 
     let start = Instant::now();
 

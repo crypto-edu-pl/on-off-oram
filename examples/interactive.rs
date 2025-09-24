@@ -8,7 +8,7 @@
 //! A simple interactive demonstration of ORAM.
 
 use oram::{DefaultOram, Oram};
-use rand::rngs::OsRng;
+use rand::rng;
 use rustyline::history::FileHistory;
 use rustyline::Editor;
 
@@ -32,7 +32,7 @@ fn parse_u64(
 }
 
 fn main() -> Result<(), Box<dyn std::error::Error>> {
-    let mut rng = OsRng;
+    let mut rng = rng();
 
     let mut rl = Editor::<(), _>::new().unwrap();
 

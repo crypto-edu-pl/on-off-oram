@@ -11,7 +11,7 @@ use crate::{BlockSize, OramBlock};
 use subtle::{Choice, ConditionallySelectable};
 
 use rand::{
-    distributions::{Distribution, Standard},
+    distr::{Distribution, StandardUniform},
     Rng,
 };
 
@@ -51,11 +51,11 @@ impl<const B: BlockSize> ConditionallySelectable for BlockValue<B> {
     }
 }
 
-impl<const B: BlockSize> Distribution<BlockValue<B>> for Standard {
+impl<const B: BlockSize> Distribution<BlockValue<B>> for StandardUniform {
     fn sample<R: Rng + ?Sized>(&self, rng: &mut R) -> BlockValue<B> {
         let mut result = BlockValue::default();
         for i in 0..B {
-            result.data[i] = rng.gen();
+            result.data[i] = rng.random();
         }
         result
     }
@@ -183,24 +183,24 @@ impl ConditionallySelectable for BlockMetadata {
     }
 }
 
-impl<const B: BlockSize> Distribution<PositionBlock<B>> for Standard {
+impl<const B: BlockSize> Distribution<PositionBlock<B>> for StandardUniform {
     fn sample<R: rand::Rng + ?Sized>(&self, rng: &mut R) -> PositionBlock<B> {
         let mut result: PositionBlock<B> = PositionBlock::default();
         for i in 0..B {
-            result.data[i] = rng.gen();
+            result.data[i] = rng.random();
         }
         result
     }
 }
 
-impl Distribution<BlockMetadata> for Standard {
+impl Distribution<BlockMetadata> for StandardUniform {
     fn sample<R: rand::Rng + ?Sized>(&self, rng: &mut R) -> BlockMetadata {
         BlockMetadata {
-            assigned_leaf: rng.gen(),
+            assigned_leaf: rng.random(),
             #[cfg(feature = "exact_locations_in_position_map")]
-            exact_bucket: rng.gen(),
+            exact_bucket: rng.random(),
             #[cfg(feature = "exact_locations_in_position_map")]
-            exact_offset: rng.gen(),
+            exact_offset: rng.random(),
         }
     }
 }

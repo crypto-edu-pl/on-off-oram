@@ -124,7 +124,7 @@ fn benchmark_random_operations<const B: BlockSize, T: Oram<V = BlockValue<B>> + 
         let capacity_usize: usize = capacity.try_into().unwrap();
         let mut value_randomness = vec![0u8; block_size * capacity_usize];
         for entry in &mut index_randomness {
-            *entry = rng.gen_range(0..capacity);
+            *entry = rng.random_range(0..capacity);
         }
 
         rng.fill(&mut read_versus_write_randomness[..]);

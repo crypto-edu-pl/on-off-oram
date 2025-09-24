@@ -1,7 +1,12 @@
 use std::{iter, time::Instant};
 
 use log::LevelFilter;
-use rand::{distr::Uniform, prelude::Distribution, random, rng, seq::SliceRandom};
+use rand::{
+    distr::slice::Choose,
+    prelude::Distribution,
+    random, rng,
+    seq::{IteratorRandom, SliceRandom},
+};
 use simplelog::SimpleLogger;
 use static_assertions::const_assert;
 
@@ -33,16 +38,22 @@ fn benchmark_percentages<O: Oram<V = u64>, R: rand::RngCore + rand::CryptoRng>(
     n_unique_addresses: u64,
     average_n_accesses_per_addr: u64,
 ) -> Result<BenchmarkResult, oram::OramError> {
-    let mut addresses = (0..n_unique_addresses)
+    let mut unique_addresses =
+        (0..ARRAY_SIZE).choose_multiple(rng, n_unique_addresses.try_into().unwrap());
+    unique_addresses.shuffle(rng);
+    let mut addresses = unique_addresses
+        .iter()
+        .copied()
         .chain(
-            Uniform::try_from(0..n_unique_addresses)
+            Choose::new(&unique_addresses)
                 .unwrap()
                 .sample_iter(&mut *rng)
                 .take(
                     ((average_n_accesses_per_addr - 1) * n_unique_addresses)
                         .try_into()
                         .unwrap(),
-                ),
+                )
+                .copied(),
         )
         .collect::<Vec<_>>();
     addresses.shuffle(rng);

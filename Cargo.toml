@@ -14,7 +14,7 @@ categories = ["cryptography"]
 subtle = "2"
 rand = "0.9"
 log = "0.4"
-thiserror = "1"
+thiserror = "2"
 static_assertions = "1"
 simplelog = "0.12"
 

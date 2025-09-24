@@ -182,7 +182,7 @@ fn helper_bitonic_merge_by_keys<
 #[cfg(test)]
 mod tests {
     use super::TreeIndex;
-    use rand::{rngs::StdRng, seq::SliceRandom, CryptoRng, RngCore, SeedableRng};
+    use rand::{CryptoRng, RngCore, SeedableRng, rngs::StdRng, seq::SliceRandom};
     use static_assertions::const_assert_eq;
     use std::mem::size_of;
 

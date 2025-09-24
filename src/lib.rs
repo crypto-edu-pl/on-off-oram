@@ -165,7 +165,9 @@ pub enum OramError {
     #[error("Arithmetic error encountered.")]
     IntegerConversionError(#[from] TryFromIntError),
     /// Errors arising from attempting to make an ORAM access to an invalid address.
-    #[error("Attempted to access ORAM address {attempted}, which is larger than ORAM capacity {capacity}.")]
+    #[error(
+        "Attempted to access ORAM address {attempted}, which is larger than ORAM capacity {capacity}."
+    )]
     AddressOutOfBoundsError {
         /// The invalid address that was accessed.
         attempted: Address,

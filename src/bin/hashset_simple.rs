@@ -2,8 +2,8 @@ use std::time::Instant;
 
 use log::LevelFilter;
 use oram::hashset::OramHashSet;
-use oram::{path_oram::LINEAR_TIME_ORAM_CUTOFF, Oram};
-use rand::{distr::StandardUniform, rng, CryptoRng, Rng, RngCore};
+use oram::{Oram, path_oram::LINEAR_TIME_ORAM_CUTOFF};
+use rand::{CryptoRng, Rng, RngCore, distr::StandardUniform, rng};
 use simplelog::SimpleLogger;
 use static_assertions::const_assert;
 

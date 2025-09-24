@@ -3,10 +3,10 @@ use std::iter;
 use std::time::{Duration, Instant};
 
 use log::LevelFilter;
-use oram::bin_utils::{benchmark_stats, BenchmarkResult, BenchmarkStats};
-use oram::{hashset::OramHashSet, OramBlock};
-use oram::{path_oram::LINEAR_TIME_ORAM_CUTOFF, Oram, OramError};
-use rand::{rng, CryptoRng, RngCore};
+use oram::bin_utils::{BenchmarkResult, BenchmarkStats, benchmark_stats};
+use oram::{Oram, OramError, path_oram::LINEAR_TIME_ORAM_CUTOFF};
+use oram::{OramBlock, hashset::OramHashSet};
+use rand::{CryptoRng, RngCore, rng};
 use simplelog::SimpleLogger;
 use static_assertions::const_assert;
 use subtle::{Choice, ConditionallySelectable, ConstantTimeEq};

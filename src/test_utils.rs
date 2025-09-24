@@ -16,12 +16,12 @@ use crate::{
     Address, BlockSize, BucketSize, Oram, OramBlock, OramError, OramMode, RecursionCutoff,
     StashSize,
 };
+use rand::{CryptoRng, RngCore};
 use rand::{
+    Rng, SeedableRng,
     distr::{Distribution, StandardUniform},
     rngs::StdRng,
-    Rng, SeedableRng,
 };
-use rand::{CryptoRng, RngCore};
 use simplelog::{Config, WriteLogger};
 
 // For use in manual testing and inspection.

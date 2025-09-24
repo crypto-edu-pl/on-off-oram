@@ -1,18 +1,18 @@
 use std::{
-    cmp::{max, min, Ordering},
+    cmp::{Ordering, max, min},
     iter,
     time::{Duration, Instant},
 };
 
 use log::LevelFilter;
-use rand::{distr::Uniform, prelude::Distribution, rng, CryptoRng, RngCore};
+use rand::{CryptoRng, RngCore, distr::Uniform, prelude::Distribution, rng};
 use simplelog::SimpleLogger;
 use static_assertions::const_assert;
 
 use oram::{
-    bin_utils::{benchmark_stats, BenchmarkResult, BenchmarkStats},
-    path_oram::LINEAR_TIME_ORAM_CUTOFF,
     Address, Oram, OramError,
+    bin_utils::{BenchmarkResult, BenchmarkStats, benchmark_stats},
+    path_oram::LINEAR_TIME_ORAM_CUTOFF,
 };
 
 #[cfg(not(feature = "bypass_oram"))]

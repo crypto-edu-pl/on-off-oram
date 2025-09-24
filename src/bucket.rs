@@ -11,13 +11,13 @@ use crate::{BlockSize, OramBlock};
 use subtle::{Choice, ConditionallySelectable};
 
 use rand::{
-    distr::{Distribution, StandardUniform},
     Rng,
+    distr::{Distribution, StandardUniform},
 };
 
 use crate::BucketSize;
 
-use crate::{utils::TreeIndex, Address};
+use crate::{Address, utils::TreeIndex};
 use subtle::ConstantTimeEq;
 
 #[derive(Clone, Copy, Debug, PartialEq)]

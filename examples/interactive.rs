@@ -9,8 +9,8 @@
 
 use oram::{DefaultOram, Oram};
 use rand::rng;
-use rustyline::history::FileHistory;
 use rustyline::Editor;
+use rustyline::history::FileHistory;
 
 fn parse_u64(
     prompt: &str,

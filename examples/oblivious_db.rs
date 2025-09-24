@@ -10,7 +10,7 @@
 extern crate oram;
 
 use oram::{Address, BlockSize, BlockValue, DefaultOram, Oram, OramError};
-use rand::{rng, Rng};
+use rand::{Rng, rng};
 
 const BLOCK_SIZE: BlockSize = 4096;
 const DB_SIZE: Address = 64;

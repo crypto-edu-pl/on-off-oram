@@ -6,9 +6,9 @@ use simplelog::SimpleLogger;
 use static_assertions::const_assert;
 
 use oram::{
-    bin_utils::{benchmark_stats, BenchmarkResult, BenchmarkStats},
-    path_oram::LINEAR_TIME_ORAM_CUTOFF,
     Oram,
+    bin_utils::{BenchmarkResult, BenchmarkStats, benchmark_stats},
+    path_oram::LINEAR_TIME_ORAM_CUTOFF,
 };
 
 #[cfg(not(feature = "bypass_oram"))]

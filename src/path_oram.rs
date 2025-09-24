@@ -34,11 +34,11 @@ use subtle::{ConditionallySelectable, ConstantTimeLess};
 
 use super::{position_map::PositionMap, stash::ObliviousStash};
 use crate::{
+    Address, BlockSize, BucketSize, Oram, OramBlock, OramError, OramMode, RecursionCutoff,
+    StashSize,
     bucket::{BlockMetadata, Bucket, PositionBlock},
     linear_time_oram::LinearTimeOram,
     utils::{CompleteBinaryTreeIndex, TreeHeight},
-    Address, BlockSize, BucketSize, Oram, OramBlock, OramError, OramMode, RecursionCutoff,
-    StashSize,
 };
 
 #[cfg(feature = "direct_accesses_in_off_mode")]
@@ -930,7 +930,7 @@ mod tests {
 
     use crate::{bucket::*, test_utils::*};
 
-    use rand::{rngs::StdRng, SeedableRng};
+    use rand::{SeedableRng, rngs::StdRng};
 
     // Test default parameters. For the small capacity used in the tests, this means a linear position map.
     create_path_oram_correctness_tests!(4, 8, 16384, 40, 1);

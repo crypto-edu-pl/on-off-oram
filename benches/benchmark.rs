@@ -9,7 +9,7 @@
 
 extern crate criterion;
 use core::fmt;
-use criterion::{black_box, criterion_group, criterion_main, BenchmarkId, Criterion};
+use criterion::{BenchmarkId, Criterion, black_box, criterion_group, criterion_main};
 use oram::DefaultOram;
 use rand::CryptoRng;
 use rand::RngCore;
@@ -19,7 +19,7 @@ use std::time::Duration;
 use oram::BlockSize;
 use oram::BlockValue;
 use oram::{Address, Oram};
-use rand::{rngs::StdRng, Rng, SeedableRng};
+use rand::{Rng, SeedableRng, rngs::StdRng};
 
 const CAPACITIES_TO_BENCHMARK: [Address; 3] = [1 << 14, 1 << 16, 1 << 20];
 

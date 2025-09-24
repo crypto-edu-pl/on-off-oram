@@ -10,9 +10,9 @@
 use std::{cmp, vec};
 
 use crate::{
-    bucket::{Bucket, PathOramBlock},
-    utils::{bitonic_sort_by_keys, CompleteBinaryTreeIndex, TreeIndex},
     Address, BucketSize, OramBlock, OramError, StashSize,
+    bucket::{Bucket, PathOramBlock},
+    utils::{CompleteBinaryTreeIndex, TreeIndex, bitonic_sort_by_keys},
 };
 
 #[cfg(feature = "exact_locations_in_position_map")]

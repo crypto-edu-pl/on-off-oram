@@ -9,7 +9,7 @@
 
 use super::path_oram::PathOram;
 use crate::bucket::{BlockMetadata, PositionBlock};
-use crate::{linear_time_oram::LinearTimeOram, Address, BlockSize, BucketSize, Oram};
+use crate::{Address, BlockSize, BucketSize, Oram, linear_time_oram::LinearTimeOram};
 use crate::{OramError, RecursionCutoff};
 use crate::{OramMode, StashSize};
 use rand::{CryptoRng, RngCore};

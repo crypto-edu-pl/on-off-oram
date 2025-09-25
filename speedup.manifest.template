@@ -13,6 +13,8 @@ fs.mounts = [
 
 sgx.enclave_size = "64M"
 
+sgx.preheat_enclave = true
+
 sgx.allowed_files = [
     "file:{{ gramine.runtimedir() }}/",
     "file:/usr/{{ arch_libdir }}/",

@@ -11,7 +11,7 @@ fs.mounts = [
     { path = "/data", uri = "file:data" },
 ]
 
-sgx.enclave_size = "512M"
+sgx.enclave_size = "64M"
 
 sgx.allowed_files = [
     "file:{{ gramine.runtimedir() }}/",

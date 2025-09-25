@@ -11,7 +11,7 @@ use simplelog::SimpleLogger;
 use static_assertions::const_assert;
 
 use oram::{
-    Oram,
+    BlockValue, Oram,
     bin_utils::{BenchmarkResult, BenchmarkStats, benchmark_stats},
     path_oram::LINEAR_TIME_ORAM_CUTOFF,
 };
@@ -58,7 +58,7 @@ fn gen_addresses<R: rand::RngCore + rand::CryptoRng>(
     addresses
 }
 
-fn benchmark_percentages<O: Oram<V = u64>, R: rand::RngCore + rand::CryptoRng>(
+fn benchmark_percentages<O: Oram, R: rand::RngCore + rand::CryptoRng>(
     oram_array: &mut O,
     rng: &mut R,
     n_unique_addresses: u64,
@@ -109,12 +109,12 @@ fn main() {
     let mut oram_array = {
         #[cfg(not(feature = "bypass_oram"))]
         {
-            DefaultOram::<u64>::new(ARRAY_SIZE, &mut rng).unwrap()
+            DefaultOram::<BlockValue<64>>::new(ARRAY_SIZE, &mut rng).unwrap()
         }
 
         #[cfg(feature = "bypass_oram")]
         {
-            NotReallyOram::<u64>::new(ARRAY_SIZE).unwrap()
+            NotReallyOram::<BlockValue<64>>::new(ARRAY_SIZE).unwrap()
         }
     };
 

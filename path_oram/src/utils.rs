@@ -7,7 +7,7 @@
 
 //! Utilities.
 
-use rand::{CryptoRng, Rng, RngCore};
+use rand::{CryptoRng, RngExt};
 
 use subtle::{
     Choice, ConditionallySelectable, ConstantTimeEq, ConstantTimeGreater, ConstantTimeLess,
@@ -23,11 +23,11 @@ where
     Self: Sized,
 {
     fn ct_node_on_path(&self, depth: TreeHeight, height: TreeHeight) -> Self;
-    fn random_leaf<R: RngCore + CryptoRng>(
+    fn random_leaf<R: CryptoRng>(
         tree_height: TreeHeight,
         rng: &mut R,
     ) -> Result<Self, TryFromIntError>;
-    fn random_leaves<R: RngCore + CryptoRng>(
+    fn random_leaves<R: CryptoRng>(
         count: u32,
         tree_height: TreeHeight,
         rng: &mut R,
@@ -50,7 +50,7 @@ impl CompleteBinaryTreeIndex for TreeIndex {
         self >> shift
     }
 
-    fn random_leaf<R: RngCore + CryptoRng>(
+    fn random_leaf<R: CryptoRng>(
         tree_height: TreeHeight,
         rng: &mut R,
     ) -> Result<Self, TryFromIntError> {
@@ -61,7 +61,7 @@ impl CompleteBinaryTreeIndex for TreeIndex {
         Ok(result)
     }
 
-    fn random_leaves<R: RngCore + CryptoRng>(
+    fn random_leaves<R: CryptoRng>(
         count: u32,
         tree_height: TreeHeight,
         rng: &mut R,
@@ -182,7 +182,7 @@ fn helper_bitonic_merge_by_keys<
 #[cfg(test)]
 mod tests {
     use super::TreeIndex;
-    use rand::{CryptoRng, RngCore, SeedableRng, rngs::StdRng, seq::SliceRandom};
+    use rand::{CryptoRng, SeedableRng, rngs::StdRng, seq::SliceRandom};
     use static_assertions::const_assert_eq;
     use std::mem::size_of;
 
@@ -193,7 +193,7 @@ mod tests {
         const_assert_eq!(size_of::<TreeIndex>(), 8);
     }
 
-    pub(crate) fn random_permutation_of_0_through_n_exclusive<R: RngCore + CryptoRng>(
+    pub(crate) fn random_permutation_of_0_through_n_exclusive<R: CryptoRng>(
         n: u64,
         rng: &mut R,
     ) -> Vec<u64> {

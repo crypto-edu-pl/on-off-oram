@@ -5,7 +5,7 @@ use std::{
 };
 
 use log::LevelFilter;
-use rand::{CryptoRng, RngCore, distr::Uniform, prelude::Distribution, rng};
+use rand::{CryptoRng, distr::Uniform, prelude::Distribution};
 use simplelog::SimpleLogger;
 use static_assertions::const_assert;
 
@@ -27,7 +27,7 @@ const N_SEARCHES: usize = 20;
 
 const N_BENCHMARK_REPETITIONS: u32 = 20;
 
-fn benchmark_searches<O: Oram<V = u64>, R: RngCore + CryptoRng>(
+fn benchmark_searches<O: Oram<V = u64>, R: CryptoRng>(
     oram_array: &mut O,
     distribution: Uniform<u64>,
     rng: &mut R,
@@ -63,7 +63,7 @@ fn benchmark_searches<O: Oram<V = u64>, R: RngCore + CryptoRng>(
 fn main() {
     SimpleLogger::init(LevelFilter::Trace, simplelog::Config::default()).unwrap();
 
-    let mut rng = rng();
+    let mut rng = rand::rng();
 
     let start = Instant::now();
 

@@ -1,4 +1,4 @@
-use rand::{CryptoRng, RngCore};
+use rand::CryptoRng;
 
 use path_oram::{Address, Oram, OramBlock, OramError, OramMode};
 
@@ -23,7 +23,7 @@ impl<V: OramBlock> Oram for NotReallyOram<V> {
         Ok(self.physical_memory.len().try_into()?)
     }
 
-    fn access<R: rand::RngCore + CryptoRng, F: Fn(&Self::V) -> Self::V>(
+    fn access<R: CryptoRng, F: Fn(&Self::V) -> Self::V>(
         &mut self,
         index: Address,
         callback: F,
@@ -35,7 +35,7 @@ impl<V: OramBlock> Oram for NotReallyOram<V> {
         Ok(result)
     }
 
-    fn batch_access<R: RngCore + CryptoRng, F: Fn(&Self::V) -> Self::V>(
+    fn batch_access<R: CryptoRng, F: Fn(&Self::V) -> Self::V>(
         &mut self,
         _callbacks: &[(Address, F)],
         _rng: &mut R,
@@ -43,7 +43,7 @@ impl<V: OramBlock> Oram for NotReallyOram<V> {
         unimplemented!()
     }
 
-    fn turn_on<R: RngCore + CryptoRng>(&mut self, _rng: &mut R) -> Result<(), OramError> {
+    fn turn_on<R: CryptoRng>(&mut self, _rng: &mut R) -> Result<(), OramError> {
         Ok(())
     }
 

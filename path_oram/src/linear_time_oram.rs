@@ -8,7 +8,7 @@
 //! A simple linear-time implementation of Oblivious RAM.
 
 use crate::{Address, Oram, OramBlock, OramError, OramMode};
-use rand::{CryptoRng, RngCore};
+use rand::CryptoRng;
 use subtle::ConstantTimeEq;
 
 /// A simple ORAM that, for each access, ensures obliviousness by making a complete pass over the database,
@@ -38,7 +38,7 @@ impl<V: OramBlock> LinearTimeOram<V> {
 impl<V: OramBlock> Oram for LinearTimeOram<V> {
     type V = V;
 
-    fn access<R: RngCore + CryptoRng, F: Fn(&V) -> V>(
+    fn access<R: CryptoRng, F: Fn(&V) -> V>(
         &mut self,
         index: Address,
         callback: F,
@@ -85,7 +85,7 @@ impl<V: OramBlock> Oram for LinearTimeOram<V> {
         }
     }
 
-    fn batch_access<R: RngCore + CryptoRng, F: Fn(&Self::V) -> Self::V>(
+    fn batch_access<R: CryptoRng, F: Fn(&Self::V) -> Self::V>(
         &mut self,
         callbacks: &[(Address, F)],
         rng: &mut R,
@@ -101,7 +101,7 @@ impl<V: OramBlock> Oram for LinearTimeOram<V> {
         Ok(u64::try_from(self.physical_memory.len())?)
     }
 
-    fn turn_on<R: RngCore + CryptoRng>(&mut self, _rng: &mut R) -> Result<(), OramError> {
+    fn turn_on<R: CryptoRng>(&mut self, _rng: &mut R) -> Result<(), OramError> {
         // No need to do anything - in on mode we always go through the entire memory, so it doesn't matter if the server
         // knows where some blocks are.
         self.turn_on_without_evicting()

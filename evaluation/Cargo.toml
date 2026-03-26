@@ -5,7 +5,7 @@ edition = "2024"
 
 [dependencies]
 subtle = "2"
-rand = "0.9"
+rand = "0.10"
 log = "0.4"
 static_assertions = "1"
 simplelog = "0.12"

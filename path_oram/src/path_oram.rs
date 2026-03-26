@@ -23,7 +23,7 @@ use std::collections::hash_map;
 #[cfg(feature = "exact_locations_in_position_map")]
 use std::slice::SliceIndex;
 
-use rand::{CryptoRng, Rng, RngCore};
+use rand::{CryptoRng, RngExt};
 
 #[cfg(feature = "batched_turning_on")]
 use static_assertions::const_assert;
@@ -158,7 +158,7 @@ impl<V: OramBlock> Oram for DefaultOram<V> {
         }
     }
 
-    fn access<R: rand::RngCore + CryptoRng, F: Fn(&Self::V) -> Self::V>(
+    fn access<R: rand::CryptoRng, F: Fn(&Self::V) -> Self::V>(
         &mut self,
         index: Address,
         callback: F,
@@ -170,7 +170,7 @@ impl<V: OramBlock> Oram for DefaultOram<V> {
         }
     }
 
-    fn batch_access<R: RngCore + CryptoRng, F: Fn(&Self::V) -> Self::V>(
+    fn batch_access<R: CryptoRng, F: Fn(&Self::V) -> Self::V>(
         &mut self,
         callbacks: &[(Address, F)],
         rng: &mut R,
@@ -181,7 +181,7 @@ impl<V: OramBlock> Oram for DefaultOram<V> {
         }
     }
 
-    fn turn_on<R: RngCore + CryptoRng>(&mut self, rng: &mut R) -> Result<(), OramError> {
+    fn turn_on<R: CryptoRng>(&mut self, rng: &mut R) -> Result<(), OramError> {
         match &mut self.0 {
             DefaultOramBackend::Path(p) => p.turn_on(rng),
             DefaultOramBackend::Linear(l) => l.turn_on(rng),
@@ -216,10 +216,7 @@ impl<V: OramBlock> DefaultOram<V> {
     /// # Errors
     ///
     /// If `block_capacity` is not a power of two, returns an `InvalidConfigurationError`.
-    pub fn new<R: Rng + CryptoRng>(
-        block_capacity: Address,
-        rng: &mut R,
-    ) -> Result<Self, OramError> {
+    pub fn new<R: CryptoRng>(block_capacity: Address, rng: &mut R) -> Result<Self, OramError> {
         if block_capacity < LINEAR_TIME_ORAM_CUTOFF {
             Ok(Self(DefaultOramBackend::Linear(LinearTimeOram::new(
                 block_capacity,
@@ -265,7 +262,7 @@ impl<V: OramBlock, const Z: BucketSize, const AB: BlockSize> PathOram<V, Z, AB> 
     /// - `Z` is 0 or 1.
     /// - `recursion_cutoff` is 0.
     /// - `overflow_size` is 0.
-    pub fn new_with_parameters<R: Rng + CryptoRng>(
+    pub fn new_with_parameters<R: CryptoRng>(
         block_capacity: Address,
         rng: &mut R,
         overflow_size: StashSize,
@@ -355,7 +352,7 @@ impl<V: OramBlock, const Z: BucketSize, const AB: BlockSize> PathOram<V, Z, AB> 
 
     #[cfg(feature = "exact_locations_in_position_map")]
     fn batch_update_position_map<
-        R: Rng + CryptoRng,
+        R: CryptoRng,
         RangeT: SliceIndex<[StashEntry<V>], Output = [StashEntry<V>]>,
     >(
         &mut self,
@@ -408,7 +405,7 @@ impl<V: OramBlock, const Z: BucketSize, const AB: BlockSize> Oram for PathOram<V
     type V = V;
 
     // REVIEW NOTE: This function has not been modified.
-    fn access<R: Rng + CryptoRng, F: Fn(&V) -> V>(
+    fn access<R: CryptoRng, F: Fn(&V) -> V>(
         &mut self,
         address: Address,
         callback: F,
@@ -753,7 +750,7 @@ impl<V: OramBlock, const Z: BucketSize, const AB: BlockSize> Oram for PathOram<V
         }
     }
 
-    fn batch_access<R: RngCore + CryptoRng, F: Fn(&Self::V) -> Self::V>(
+    fn batch_access<R: CryptoRng, F: Fn(&Self::V) -> Self::V>(
         &mut self,
         callbacks: &[(Address, F)],
         rng: &mut R,
@@ -860,7 +857,7 @@ impl<V: OramBlock, const Z: BucketSize, const AB: BlockSize> Oram for PathOram<V
         Ok(u64::try_from(self.physical_memory.len())?)
     }
 
-    fn turn_on<R: RngCore + CryptoRng>(&mut self, rng: &mut R) -> Result<(), OramError> {
+    fn turn_on<R: CryptoRng>(&mut self, rng: &mut R) -> Result<(), OramError> {
         self.mode = OramMode::On;
         // Evictions in the position map will happen during the reads below
         self.position_map.turn_on_without_evicting()?;

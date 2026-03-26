@@ -8,7 +8,7 @@ use path_oram::DefaultOram;
 #[cfg(feature = "bypass_oram")]
 use crate::not_really_oram::NotReallyOram;
 
-use rand::{CryptoRng, Rng};
+use rand::CryptoRng;
 
 use subtle::{Choice, ConditionallySelectable, ConstantTimeEq};
 
@@ -58,7 +58,7 @@ impl<V: OramHashSetData> OramHashSet<V> {
     const N_CHECKED_GROUPS: u64 = 3;
 
     /// Create new hashset
-    pub fn new<R: Rng + CryptoRng>(
+    pub fn new<R: CryptoRng>(
         capacity: u64,
         #[cfg(not(feature = "bypass_oram"))] rng: &mut R,
         #[cfg(feature = "bypass_oram")] _rng: &mut R,
@@ -73,7 +73,7 @@ impl<V: OramHashSetData> OramHashSet<V> {
     }
 
     /// Insert an element
-    pub fn insert<R: Rng + CryptoRng>(&mut self, value: V, rng: &mut R) -> Result<(), OramError> {
+    pub fn insert<R: CryptoRng>(&mut self, value: V, rng: &mut R) -> Result<(), OramError> {
         let hash = self.hash_builder.hash_one(value);
         let capacity = self.array.block_capacity()?;
         let mut slot_index = hash % capacity;
@@ -123,11 +123,7 @@ impl<V: OramHashSetData> OramHashSet<V> {
     }
 
     /// Look up an element
-    pub fn contains<R: Rng + CryptoRng>(
-        &mut self,
-        value: V,
-        rng: &mut R,
-    ) -> Result<bool, OramError> {
+    pub fn contains<R: CryptoRng>(&mut self, value: V, rng: &mut R) -> Result<bool, OramError> {
         let hash = self.hash_builder.hash_one(value);
         let capacity = self.array.block_capacity()?;
         let mut slot_index = hash % capacity;

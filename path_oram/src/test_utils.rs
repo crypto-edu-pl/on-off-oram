@@ -16,9 +16,9 @@ use crate::{
     Address, BlockSize, BucketSize, Oram, OramBlock, OramError, OramMode, RecursionCutoff,
     StashSize,
 };
-use rand::{CryptoRng, RngCore};
+use rand::RngExt;
 use rand::{
-    Rng, SeedableRng,
+    CryptoRng, SeedableRng,
     distr::{Distribution, StandardUniform},
     rngs::StdRng,
 };
@@ -235,7 +235,7 @@ pub(crate) struct StashSizeMonitor<V: OramBlock, const Z: BucketSize, const AB: 
 }
 
 impl<V: OramBlock, const Z: BucketSize, const AB: BlockSize> StashSizeMonitor<V, Z, AB> {
-    pub(crate) fn new_with_parameters<R: rand::RngCore + rand::CryptoRng>(
+    pub(crate) fn new_with_parameters<R: CryptoRng>(
         block_capacity: Address,
         rng: &mut R,
         overflow_size: StashSize,
@@ -262,7 +262,7 @@ impl<V: OramBlock, const Z: BucketSize, const AB: BlockSize> Oram for StashSizeM
         self.oram.block_capacity()
     }
 
-    fn access<R: rand::RngCore + rand::CryptoRng, F: Fn(&V) -> V>(
+    fn access<R: CryptoRng, F: Fn(&V) -> V>(
         &mut self,
         index: Address,
         callback: F,
@@ -274,7 +274,7 @@ impl<V: OramBlock, const Z: BucketSize, const AB: BlockSize> Oram for StashSizeM
         result
     }
 
-    fn batch_access<R: RngCore + CryptoRng, F: Fn(&Self::V) -> Self::V>(
+    fn batch_access<R: CryptoRng, F: Fn(&Self::V) -> Self::V>(
         &mut self,
         callbacks: &[(Address, F)],
         rng: &mut R,
@@ -285,7 +285,7 @@ impl<V: OramBlock, const Z: BucketSize, const AB: BlockSize> Oram for StashSizeM
         result
     }
 
-    fn turn_on<R: RngCore + CryptoRng>(&mut self, rng: &mut R) -> Result<(), OramError> {
+    fn turn_on<R: CryptoRng>(&mut self, rng: &mut R) -> Result<(), OramError> {
         self.oram.turn_on(rng)
     }
 

@@ -3,7 +3,7 @@ use std::iter;
 use std::time::{Duration, Instant};
 
 use log::LevelFilter;
-use rand::{CryptoRng, RngCore, rng};
+use rand::CryptoRng;
 use simplelog::SimpleLogger;
 use static_assertions::const_assert;
 use subtle::{Choice, ConditionallySelectable, ConstantTimeEq};
@@ -65,7 +65,7 @@ fn get_words(path: &str) -> Vec<String> {
         .collect()
 }
 
-fn spellcheck<R: RngCore + CryptoRng>(
+fn spellcheck<R: CryptoRng>(
     text: &[DictEntry],
     dictionary: &mut OramHashSet<DictEntry>,
     rng: &mut R,
@@ -90,7 +90,7 @@ fn main() {
     let mut dictionary_entries = HashSet::new();
     dictionary_entries.extend(&body_parts);
 
-    let mut rng = rng();
+    let mut rng = rand::rng();
 
     let start = Instant::now();
 

@@ -12,7 +12,7 @@ use crate::bucket::{BlockMetadata, PositionBlock};
 use crate::{Address, BlockSize, BucketSize, Oram, linear_time_oram::LinearTimeOram};
 use crate::{OramError, RecursionCutoff};
 use crate::{OramMode, StashSize};
-use rand::{CryptoRng, RngCore};
+use rand::CryptoRng;
 use subtle::{ConditionallySelectable, ConstantTimeEq};
 
 /// A recursive Path ORAM position map data structure. `AB` is the number of addresses stored in each ORAM block.
@@ -37,7 +37,7 @@ impl<const AB: BlockSize, const Z: BucketSize> PositionMap<AB, Z> {
 }
 
 impl<const AB: BlockSize, const Z: BucketSize> PositionMap<AB, Z> {
-    pub fn write_position_block<R: RngCore + CryptoRng>(
+    pub fn write_position_block<R: CryptoRng>(
         &mut self,
         address: Address,
         position_block: PositionBlock<AB>,
@@ -60,7 +60,7 @@ impl<const AB: BlockSize, const Z: BucketSize> PositionMap<AB, Z> {
 }
 
 impl<const AB: BlockSize, const Z: BucketSize> PositionMap<AB, Z> {
-    pub fn new<R: CryptoRng + RngCore>(
+    pub fn new<R: CryptoRng>(
         number_of_addresses: Address,
         rng: &mut R,
         overflow_size: StashSize,
@@ -129,7 +129,7 @@ impl<const AB: BlockSize, const Z: BucketSize> Oram for PositionMap<AB, Z> {
         }
     }
 
-    fn access<R: RngCore + CryptoRng, F: Fn(&BlockMetadata) -> BlockMetadata>(
+    fn access<R: CryptoRng, F: Fn(&BlockMetadata) -> BlockMetadata>(
         &mut self,
         address: Address,
         callback: F,
@@ -205,7 +205,7 @@ impl<const AB: BlockSize, const Z: BucketSize> Oram for PositionMap<AB, Z> {
         }
     }
 
-    fn batch_access<R: RngCore + CryptoRng, F: Fn(&Self::V) -> Self::V>(
+    fn batch_access<R: CryptoRng, F: Fn(&Self::V) -> Self::V>(
         &mut self,
         callbacks: &[(Address, F)],
         rng: &mut R,
@@ -260,7 +260,7 @@ impl<const AB: BlockSize, const Z: BucketSize> Oram for PositionMap<AB, Z> {
         }
     }
 
-    fn turn_on<R: RngCore + CryptoRng>(&mut self, rng: &mut R) -> Result<(), OramError> {
+    fn turn_on<R: CryptoRng>(&mut self, rng: &mut R) -> Result<(), OramError> {
         match self {
             PositionMap::Base(linear_oram) => linear_oram.turn_on(rng),
             PositionMap::Recursive(block_oram) => block_oram.turn_on(rng),

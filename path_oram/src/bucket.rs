@@ -11,7 +11,7 @@ use crate::{BlockSize, OramBlock};
 use subtle::{Choice, ConditionallySelectable};
 
 use rand::{
-    Rng,
+    Rng, RngExt,
     distr::{Distribution, StandardUniform},
 };
 

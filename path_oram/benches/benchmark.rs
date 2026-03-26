@@ -11,21 +11,19 @@ extern crate criterion;
 use core::fmt;
 use criterion::{BenchmarkId, Criterion, black_box, criterion_group, criterion_main};
 use oram::DefaultOram;
-use rand::CryptoRng;
-use rand::RngCore;
+use rand::{CryptoRng, RngExt, SeedableRng, rngs::StdRng};
 use std::mem;
 use std::time::Duration;
 
 use oram::BlockSize;
 use oram::BlockValue;
 use oram::{Address, Oram};
-use rand::{Rng, SeedableRng, rngs::StdRng};
 
 const CAPACITIES_TO_BENCHMARK: [Address; 3] = [1 << 14, 1 << 16, 1 << 20];
 
 trait Benchmarkable {
     fn short_name() -> String;
-    fn new<R: CryptoRng + RngCore>(capacity: Address, rng: &mut R) -> Self;
+    fn new<R: CryptoRng>(capacity: Address, rng: &mut R) -> Self;
 }
 
 impl<const B: BlockSize> Benchmarkable for DefaultOram<BlockValue<B>> {
@@ -33,7 +31,7 @@ impl<const B: BlockSize> Benchmarkable for DefaultOram<BlockValue<B>> {
         "DefaultOram".into()
     }
 
-    fn new<R: CryptoRng + RngCore>(capacity: Address, rng: &mut R) -> Self {
+    fn new<R: CryptoRng>(capacity: Address, rng: &mut R) -> Self {
         Self::new(capacity, rng).unwrap()
     }
 }
@@ -127,7 +125,9 @@ fn benchmark_random_operations<const B: BlockSize, T: Oram<V = BlockValue<B>> + 
             *entry = rng.random_range(0..capacity);
         }
 
-        rng.fill(&mut read_versus_write_randomness[..]);
+        for x in &mut read_versus_write_randomness {
+            *x = rng.random();
+        }
         rng.fill(&mut value_randomness[..]);
 
         group.bench_with_input(

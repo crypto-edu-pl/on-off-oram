@@ -1,7 +1,7 @@
 use std::time::Instant;
 
 use log::LevelFilter;
-use rand::{CryptoRng, Rng, RngCore, distr::StandardUniform, rng};
+use rand::{CryptoRng, RngExt, distr::StandardUniform, rng};
 use simplelog::SimpleLogger;
 use static_assertions::const_assert;
 
@@ -13,7 +13,7 @@ const ARRAY_SIZE: u64 = 4096;
 
 const_assert!(ARRAY_SIZE >= LINEAR_TIME_ORAM_CUTOFF);
 
-fn benchmark_lookups<R: RngCore + CryptoRng>(oram_hash_set: &mut OramHashSet<u64>, rng: &mut R) {
+fn benchmark_lookups<R: CryptoRng>(oram_hash_set: &mut OramHashSet<u64>, rng: &mut R) {
     for _ in 0..20 {
         let search_val = rng.random::<u64>();
 

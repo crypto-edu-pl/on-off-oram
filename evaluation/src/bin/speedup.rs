@@ -2,9 +2,10 @@ use std::{iter, time::Instant};
 
 use log::LevelFilter;
 use rand::{
+    CryptoRng, Rng,
     distr::slice::Choose,
     prelude::Distribution,
-    random, rng,
+    random,
     seq::{IteratorRandom, SliceRandom},
 };
 use simplelog::SimpleLogger;
@@ -30,13 +31,12 @@ const AVERAGE_N_ACCESSES_PER_ADDR: [u64; 10] = [1, 2, 3, 4, 5, 6, 7, 8, 9, 10];
 
 const N_BENCHMARK_REPETITIONS: u32 = 20;
 
-fn gen_addresses<R: rand::RngCore + rand::CryptoRng>(
+fn gen_addresses<R: Rng + rand::CryptoRng>(
     rng: &mut R,
     n_unique_addresses: u64,
     average_n_accesses_per_addr: u64,
 ) -> Vec<u64> {
-    let unique_addresses =
-        (0..ARRAY_SIZE).choose_multiple(rng, n_unique_addresses.try_into().unwrap());
+    let unique_addresses = (0..ARRAY_SIZE).sample(rng, n_unique_addresses.try_into().unwrap());
     let mut addresses = unique_addresses
         .iter()
         .copied()
@@ -56,7 +56,7 @@ fn gen_addresses<R: rand::RngCore + rand::CryptoRng>(
     addresses
 }
 
-fn benchmark_percentages<O: Oram, R: rand::RngCore + rand::CryptoRng>(
+fn benchmark_percentages<O: Oram, R: CryptoRng>(
     oram_array: &mut O,
     rng: &mut R,
     n_unique_addresses: u64,
@@ -100,7 +100,7 @@ fn benchmark_percentages<O: Oram, R: rand::RngCore + rand::CryptoRng>(
 fn main() {
     SimpleLogger::init(LevelFilter::Trace, simplelog::Config::default()).unwrap();
 
-    let mut rng = rng();
+    let mut rng = rand::rng();
 
     let start = Instant::now();
 

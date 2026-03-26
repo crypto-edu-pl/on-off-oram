@@ -92,7 +92,7 @@
 
 use std::num::TryFromIntError;
 
-use rand::{CryptoRng, RngCore};
+use rand::CryptoRng;
 use subtle::ConditionallySelectable;
 use thiserror::Error;
 
@@ -190,7 +190,7 @@ where
     ///
     /// For updating a block in place, using `access` is expected to be about
     /// twice as fast as performing a `read` followed by a `write`.
-    fn access<R: RngCore + CryptoRng, F: Fn(&Self::V) -> Self::V>(
+    fn access<R: CryptoRng, F: Fn(&Self::V) -> Self::V>(
         &mut self,
         index: Address,
         callback: F,
@@ -198,17 +198,13 @@ where
     ) -> Result<Self::V, OramError>;
 
     /// Obliviously reads the value stored at `index`.
-    fn read<R: RngCore + CryptoRng>(
-        &mut self,
-        index: Address,
-        rng: &mut R,
-    ) -> Result<Self::V, OramError> {
+    fn read<R: CryptoRng>(&mut self, index: Address, rng: &mut R) -> Result<Self::V, OramError> {
         let callback = |x: &Self::V| *x;
         self.access(index, callback, rng)
     }
 
     /// Obliviously writes the value stored at `index`. Returns the value previously stored at `index`.
-    fn write<R: RngCore + CryptoRng>(
+    fn write<R: CryptoRng>(
         &mut self,
         index: Address,
         new_value: Self::V,
@@ -219,14 +215,14 @@ where
     }
 
     /// Perform a batch of oblivious ORAM accesses.
-    fn batch_access<R: RngCore + CryptoRng, F: Fn(&Self::V) -> Self::V>(
+    fn batch_access<R: CryptoRng, F: Fn(&Self::V) -> Self::V>(
         &mut self,
         callbacks: &[(Address, F)],
         rng: &mut R,
     ) -> Result<Vec<Self::V>, OramError>;
 
     /// Perform a batch of oblivious ORAM reads.
-    fn batch_read<R: RngCore + CryptoRng>(
+    fn batch_read<R: CryptoRng>(
         &mut self,
         indices: &[Address],
         rng: &mut R,
@@ -240,7 +236,7 @@ where
     }
 
     /// Perform a batch of oblivious ORAM writes.
-    fn batch_write<R: RngCore + CryptoRng>(
+    fn batch_write<R: CryptoRng>(
         &mut self,
         new_values: &[(Address, Self::V)],
         rng: &mut R,
@@ -256,7 +252,7 @@ where
     ///
     /// Time can depend on current mode and if current mode is off, on the accesses made in off mode
     /// (which is fine, because they are public).
-    fn turn_on<R: RngCore + CryptoRng>(&mut self, rng: &mut R) -> Result<(), OramError>;
+    fn turn_on<R: CryptoRng>(&mut self, rng: &mut R) -> Result<(), OramError>;
 
     /// Turn ORAM off - subsequent accesses will not be oblivious.
     ///

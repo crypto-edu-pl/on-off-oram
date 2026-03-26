@@ -1,0 +1,17 @@
+[package]
+name = "evaluation"
+version = "0.1.0"
+edition = "2024"
+
+[dependencies]
+subtle = "2"
+rand = "0.9"
+log = "0.4"
+static_assertions = "1"
+simplelog = "0.12"
+
+path_oram = { path = "../path_oram", package = "oram" }
+
+[features]
+bypass_oram = []
+full_reconstruction = [ "path_oram/full_reconstruction" ]

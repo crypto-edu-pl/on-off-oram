@@ -1,9 +1,9 @@
 use std::hash::{BuildHasher, Hash, RandomState};
 
-use crate::{Oram, OramBlock, OramError};
+use path_oram::{Oram, OramBlock, OramError};
 
 #[cfg(not(feature = "bypass_oram"))]
-use crate::DefaultOram;
+use path_oram::DefaultOram;
 
 #[cfg(feature = "bypass_oram")]
 use crate::not_really_oram::NotReallyOram;

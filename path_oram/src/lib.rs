@@ -87,7 +87,7 @@
 //!
 //! See [`PathOram`] for an explanation of these parameters and their possible settings.
 
-#![warn(clippy::cargo, clippy::doc_markdown, missing_docs, rustdoc::all)]
+#![warn(clippy::doc_markdown, missing_docs, rustdoc::all)]
 #![allow(clippy::doc_overindented_list_items)]
 
 use std::num::TryFromIntError;
@@ -104,7 +104,6 @@ use thiserror::Error;
         feature = "exact_locations_in_position_map",
         feature = "exact_locations_in_position_map_and_batch_position_map",
         feature = "batched_turning_on",
-        feature = "bypass_oram",
     )
 ))]
 compile_error!("Interactions of `full_reconstruction` with other features are not implemented.");
@@ -117,15 +116,6 @@ pub(crate) mod stash;
 #[cfg(test)]
 mod test_utils;
 pub(crate) mod utils;
-
-/// An oblivious hashset that uses ORAM for the underlying storage
-pub mod hashset;
-
-/// A fake "ORAM" that actually just does plain memory accesses (as a baseline for performance comparisions)
-pub mod not_really_oram;
-
-/// Helpers for the binaries
-pub mod bin_utils;
 
 pub use crate::bucket::BlockValue;
 pub use crate::path_oram::DefaultOram;

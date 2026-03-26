@@ -9,17 +9,15 @@ use rand::{CryptoRng, RngCore, distr::Uniform, prelude::Distribution, rng};
 use simplelog::SimpleLogger;
 use static_assertions::const_assert;
 
-use oram::{
-    Address, Oram, OramError,
-    bin_utils::{BenchmarkResult, BenchmarkStats, benchmark_stats},
-    path_oram::LINEAR_TIME_ORAM_CUTOFF,
-};
+use path_oram::{Address, Oram, OramError, path_oram::LINEAR_TIME_ORAM_CUTOFF};
 
 #[cfg(not(feature = "bypass_oram"))]
-use oram::DefaultOram;
+use path_oram::DefaultOram;
 
 #[cfg(feature = "bypass_oram")]
-use oram::not_really_oram::NotReallyOram;
+use evaluation::not_really_oram::NotReallyOram;
+
+use evaluation::bin_utils::{BenchmarkResult, BenchmarkStats, benchmark_stats};
 
 const ARRAY_SIZE: u64 = 1 << 17;
 

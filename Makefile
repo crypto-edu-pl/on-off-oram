@@ -28,7 +28,7 @@ $(foreach test,$(TESTS),$(eval $(call sgx_generation_template,$(test))))
 
 .PHONY: $(addprefix bin/,$(TESTS))
 $(addprefix bin/,$(TESTS)): bin/%:
-	cargo install --features ""$(FEATURES) --path . --root . --bin $*
+	cargo install --features ""$(FEATURES) --path evaluation --root . --bin $*
 
 .PHONY: clean
 clean:

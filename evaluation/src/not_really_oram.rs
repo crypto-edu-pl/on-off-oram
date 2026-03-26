@@ -1,6 +1,6 @@
 use rand::{CryptoRng, RngCore};
 
-use crate::{Address, Oram, OramBlock, OramError, OramMode};
+use path_oram::{Address, Oram, OramBlock, OramError, OramMode};
 
 /// A fake "ORAM" that actually just does plain memory accesses (as a baseline for performance comparisions)
 pub struct NotReallyOram<V: OramBlock> {

@@ -3,13 +3,17 @@ use std::iter;
 use std::time::{Duration, Instant};
 
 use log::LevelFilter;
-use oram::bin_utils::{BenchmarkResult, BenchmarkStats, benchmark_stats};
-use oram::{Oram, OramError, path_oram::LINEAR_TIME_ORAM_CUTOFF};
-use oram::{OramBlock, hashset::OramHashSet};
 use rand::{CryptoRng, RngCore, rng};
 use simplelog::SimpleLogger;
 use static_assertions::const_assert;
 use subtle::{Choice, ConditionallySelectable, ConstantTimeEq};
+
+use path_oram::{Oram, OramBlock, OramError, path_oram::LINEAR_TIME_ORAM_CUTOFF};
+
+use evaluation::{
+    bin_utils::{BenchmarkResult, BenchmarkStats, benchmark_stats},
+    hashset::OramHashSet,
+};
 
 const MAX_WORD_SIZE: usize = 28;
 const HASHSET_CAPACITY: u64 = 1 << 20;

@@ -8,7 +8,7 @@ fs.mounts = [
     { path = "/lib", uri = "file:{{ gramine.runtimedir() }}" },
     { path = "/usr/{{ arch_libdir }}", uri = "file:/usr/{{ arch_libdir }}" },
     { path = "/binsearch_simple", uri = "file:bin/binsearch_simple" },
-    { path = "/data", uri = "file:data" },
+    { path = "/data", uri = "file:evaluation/data" },
 ]
 
 sgx.enclave_size = "64M"
@@ -19,5 +19,5 @@ sgx.allowed_files = [
     "file:{{ gramine.runtimedir() }}/",
     "file:/usr/{{ arch_libdir }}/",
     "file:bin/binsearch_simple",
-    "file:data/",
+    "file:evaluation/data/",
 ]

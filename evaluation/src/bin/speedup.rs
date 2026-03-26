@@ -10,17 +10,15 @@ use rand::{
 use simplelog::SimpleLogger;
 use static_assertions::const_assert;
 
-use oram::{
-    BlockValue, Oram,
-    bin_utils::{BenchmarkResult, BenchmarkStats, benchmark_stats},
-    path_oram::LINEAR_TIME_ORAM_CUTOFF,
-};
+use path_oram::{BlockValue, Oram, OramError, path_oram::LINEAR_TIME_ORAM_CUTOFF};
 
 #[cfg(not(feature = "bypass_oram"))]
-use oram::DefaultOram;
+use path_oram::DefaultOram;
 
 #[cfg(feature = "bypass_oram")]
-use oram::not_really_oram::NotReallyOram;
+use evaluation::not_really_oram::NotReallyOram;
+
+use evaluation::bin_utils::{BenchmarkResult, BenchmarkStats, benchmark_stats};
 
 const ARRAY_SIZE: u64 = 1 << 17;
 
@@ -63,7 +61,7 @@ fn benchmark_percentages<O: Oram, R: rand::RngCore + rand::CryptoRng>(
     rng: &mut R,
     n_unique_addresses: u64,
     average_n_accesses_per_addr: u64,
-) -> Result<BenchmarkResult, oram::OramError> {
+) -> Result<BenchmarkResult, OramError> {
     let on_addresses = gen_addresses(rng, n_unique_addresses, average_n_accesses_per_addr);
 
     let access_on_start = Instant::now();

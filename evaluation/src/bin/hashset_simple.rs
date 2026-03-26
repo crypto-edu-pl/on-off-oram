@@ -1,11 +1,13 @@
 use std::time::Instant;
 
 use log::LevelFilter;
-use oram::hashset::OramHashSet;
-use oram::{Oram, path_oram::LINEAR_TIME_ORAM_CUTOFF};
 use rand::{CryptoRng, Rng, RngCore, distr::StandardUniform, rng};
 use simplelog::SimpleLogger;
 use static_assertions::const_assert;
+
+use path_oram::{Oram, path_oram::LINEAR_TIME_ORAM_CUTOFF};
+
+use evaluation::hashset::OramHashSet;
 
 const ARRAY_SIZE: u64 = 4096;
 

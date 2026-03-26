@@ -321,7 +321,7 @@ impl<V: OramBlock, const Z: BucketSize, const AB: BlockSize> PathOram<V, Z, AB> 
         let last_leaf_index = (2 * first_leaf_index) - 1;
         let ab_address: Address = AB.try_into()?;
 
-        let num_address_blocks = if block_capacity % ab_address == 0 {
+        let num_address_blocks = if block_capacity.is_multiple_of(ab_address) {
             block_capacity / ab_address
         } else {
             block_capacity / ab_address + 1

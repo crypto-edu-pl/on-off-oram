@@ -24,7 +24,9 @@ where
         rng: &mut R,
     ) -> Result<Self, TryFromIntError>;
     fn ct_depth(&self) -> TreeHeight;
+    fn ct_depth_unchecked(&self) -> TreeHeight;
     fn is_leaf(&self, height: TreeHeight) -> bool;
+    fn deepest_common_ancestor_of_leaves(&self, other: &Self) -> Self;
 }
 
 impl CompleteBinaryTreeIndex for TreeIndex {
@@ -59,10 +61,26 @@ impl CompleteBinaryTreeIndex for TreeIndex {
         index_bitlength - leading_zeroes - 1
     }
 
+    fn ct_depth_unchecked(&self) -> TreeHeight {
+        let leading_zeroes: u64 = self.leading_zeros().into();
+        let index_bitlength = 64;
+        index_bitlength - leading_zeroes - 1
+    }
+
     fn is_leaf(&self, height: TreeHeight) -> bool {
         // We maintain the invariant that all TreeIndex values are nonzero.
         assert_ne!(*self, 0);
 
         self.ct_depth() == height
+    }
+
+    fn deepest_common_ancestor_of_leaves(&self, other: &Self) -> Self {
+        // The subsequent bits of the leaf index correspond to choosing the left/right child while descending
+        // along the path from the root. The first bit that is different corresponds to the first time a different
+        // child is chosen and the paths diverge
+        let nonequal_bits_mask = self ^ other;
+        let length_of_max_prefix_of_equal_bits = nonequal_bits_mask.leading_zeros();
+        let length_of_diverged_paths = Self::BITS - length_of_max_prefix_of_equal_bits;
+        self >> length_of_diverged_paths
     }
 }

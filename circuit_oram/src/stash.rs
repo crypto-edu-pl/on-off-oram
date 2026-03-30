@@ -11,7 +11,7 @@ use std::vec;
 
 use crate::{Address, OramBlock, OramError, StashSize, bucket::CircuitOramBlock, utils::TreeIndex};
 
-use subtle::{Choice, ConditionallySelectable};
+use subtle::{Choice, ConditionallySelectable, ConstantTimeEq};
 
 #[derive(Debug)]
 /// A fixed-size, obliviously accessed Circuit ORAM stash data structure implemented using oblivious sorting.
@@ -56,10 +56,11 @@ impl<V: OramBlock> ObliviousStash<V> {
         position: TreeIndex,
         value: V,
     ) -> Result<(), OramError> {
-        let mut added: Choice = 0.into();
+        let mut added = Choice::from(0);
 
         for entry in &mut self.entries {
             let is_dummy = entry.block.ct_is_dummy();
+            let should_add = !added & is_dummy;
 
             entry.block.conditional_assign(
                 &CircuitOramBlock {
@@ -67,10 +68,10 @@ impl<V: OramBlock> ObliviousStash<V> {
                     address,
                     position,
                 },
-                !added & is_dummy,
+                should_add,
             );
 
-            added |= is_dummy;
+            added |= should_add;
         }
 
         assert!(bool::from(added));
@@ -78,11 +79,23 @@ impl<V: OramBlock> ObliviousStash<V> {
         Ok(())
     }
 
-    pub fn conditional_remove_deepest(
+    pub fn conditional_remove(
         &mut self,
+        stash_offset: u32,
         choice: Choice,
     ) -> Result<CircuitOramBlock<V>, OramError> {
-        todo!()
+        let mut result = CircuitOramBlock::dummy();
+
+        for (offset, slot) in self.entries.iter_mut().enumerate() {
+            let should_remove = choice & (offset as u32).ct_eq(&stash_offset);
+
+            result.conditional_assign(&slot.block, should_remove);
+            slot.conditional_assign(&StashEntry::dummy(), should_remove);
+        }
+
+        assert!(bool::from(result.ct_is_dummy().ct_eq(&!choice)));
+
+        Ok(result)
     }
 
     #[cfg(test)]

@@ -18,7 +18,7 @@ use rand::{CryptoRng, RngExt};
 
 #[cfg(not(feature = "full_reconstruction"))]
 use subtle::ConstantTimeEq;
-use subtle::{Choice, ConditionallySelectable};
+use subtle::{Choice, ConditionallySelectable, ConstantTimeGreater, ConstantTimeLess};
 
 use super::{position_map::PositionMap, stash::ObliviousStash};
 use crate::{
@@ -342,8 +342,8 @@ impl<V: OramBlock, const Z: BucketSize, const AB: BlockSize> CircuitOram<V, Z, A
     }
 
     fn evict_once_fast(&mut self, path: TreeIndex) -> Result<(), OramError> {
-        let deepest = self.prepare_deepest()?;
-        let target = self.prepare_target(&deepest)?;
+        let deepest = self.prepare_deepest(path)?;
+        let target = self.prepare_target(path, &deepest)?;
 
         let mut hold = CircuitOramBlock::dummy();
         let mut dest = TreeHeight::MAX;
@@ -358,40 +358,162 @@ impl<V: OramBlock, const Z: BucketSize, const AB: BlockSize> CircuitOram<V, Z, A
                 dest.conditional_assign(&TreeHeight::MAX, is_dest);
             }
 
+            let bucket_idx = if i > 0 {
+                path.ct_node_on_path(self.height, i - 1)
+            } else {
+                0
+            };
+
             {
-                let has_target = target[i as usize].ct_ne(&TreeHeight::MAX);
+                let has_target = target[i as usize].0.ct_ne(&TreeHeight::MAX);
                 let deepest_block = if i == 0 {
-                    self.stash.conditional_remove_deepest(has_target)?
+                    self.stash
+                        .conditional_remove(target[i as usize].1, has_target)?
                 } else {
-                    self.conditional_remove_deepest(
-                        path.ct_node_on_path(self.height, i - 1),
-                        has_target,
-                    )?
+                    self.conditional_remove(bucket_idx, target[i as usize].1, has_target)?
                 };
                 hold.conditional_assign(&deepest_block, has_target);
-                dest.conditional_assign(&target[i as usize], has_target);
+                dest.conditional_assign(&target[i as usize].0, has_target);
             }
 
-            self.conditional_insert(path.ct_node_on_path(self.height, i - 1), towrite, is_dest)?;
+            if i > 0 {
+                self.conditional_insert(bucket_idx, towrite, is_dest)?;
+            }
         }
 
         Ok(())
     }
 
-    fn prepare_deepest(&self) -> Result<Vec<TreeHeight>, OramError> {
-        todo!()
+    // Compared to the paper, we additionally store the stash/bucket offset of the deepest block here, so that we don't have to
+    // look for it again during the eviction
+    fn prepare_deepest(&self, path: TreeIndex) -> Result<Vec<(TreeHeight, u32)>, OramError> {
+        let mut deepest = vec![(TreeHeight::MAX, u32::MAX); self.height as usize + 2];
+        let mut src = TreeHeight::MAX;
+        let mut src_offset = u32::MAX;
+        let mut goal = 0;
+
+        let (stash_deepest_level, stash_deepest_offset) =
+            Self::find_block_with_deepest_level(&self.stash.entries, path, |entry| &entry.block);
+
+        let stash_not_empty = stash_deepest_offset.ct_ne(&u32::MAX);
+        src.conditional_assign(&0, stash_not_empty);
+        src_offset.conditional_assign(&stash_deepest_offset, stash_not_empty);
+        goal.conditional_assign(&stash_deepest_level, stash_not_empty);
+
+        for i in 1..=self.height + 1 {
+            let src_block_can_reside_in_node = !goal.ct_lt(&i);
+            deepest[i as usize]
+                .0
+                .conditional_assign(&src, src_block_can_reside_in_node);
+            deepest[i as usize]
+                .1
+                .conditional_assign(&src_offset, src_block_can_reside_in_node);
+
+            let bucket_idx = path.ct_node_on_path(i - 1, self.height);
+            let (bucket_deepest_level, bucket_deepest_offset) = Self::find_block_with_deepest_level(
+                &self.physical_memory[bucket_idx as usize].blocks,
+                path,
+                |block| block,
+            );
+
+            let found_new_deepest_level = bucket_deepest_level.ct_gt(&goal);
+            goal.conditional_assign(&bucket_deepest_level, found_new_deepest_level);
+            src.conditional_assign(&i, found_new_deepest_level);
+            src_offset.conditional_assign(&bucket_deepest_offset, found_new_deepest_level);
+        }
+
+        Ok(deepest)
     }
 
-    fn prepare_target(&self, deepest: &[TreeHeight]) -> Result<Vec<TreeHeight>, OramError> {
-        todo!()
+    // Here we operate on bucket indices instead of levels
+    fn find_block_with_deepest_level<
+        T,
+        I: IntoIterator<Item = T>,
+        F: Fn(&T) -> &CircuitOramBlock<V>,
+    >(
+        container: I,
+        path: TreeIndex,
+        get_block: F,
+    ) -> (TreeHeight, u32) {
+        let mut deepest_level = 0;
+        let mut result_offset = u32::MAX;
+
+        for (offset, entry) in container.into_iter().enumerate() {
+            let entry_deepest_level = get_block(&entry)
+                .position
+                .deepest_common_ancestor_of_leaves(&path)
+                .ct_depth_unchecked()
+                + 1;
+            let found_new_deepest =
+                !get_block(&entry).ct_is_dummy() & entry_deepest_level.ct_gt(&deepest_level);
+
+            result_offset.conditional_assign(&(offset as u32), found_new_deepest);
+            deepest_level.conditional_assign(&entry_deepest_level, found_new_deepest);
+        }
+
+        (deepest_level, result_offset)
     }
 
-    fn conditional_remove_deepest(
+    fn prepare_target(
+        &self,
+        path: TreeIndex,
+        deepest: &[(TreeHeight, u32)],
+    ) -> Result<Vec<(TreeHeight, u32)>, OramError> {
+        let mut dest = TreeHeight::MAX;
+        let mut src = TreeHeight::MAX;
+        let mut src_offset = u32::MAX;
+        let mut target = vec![(TreeHeight::MAX, u32::MAX); self.height as usize + 2];
+
+        for i in (0..=self.height + 1).rev() {
+            let is_src = i.ct_eq(&src);
+            target[i as usize].0.conditional_assign(&dest, is_src);
+            target[i as usize].1.conditional_assign(&src_offset, is_src);
+            dest.conditional_assign(&TreeHeight::MAX, is_src);
+            src.conditional_assign(&TreeHeight::MAX, is_src);
+            src_offset.conditional_assign(&u32::MAX, is_src);
+
+            let mut has_empty_slot = Choice::from(0);
+            if i > 0 {
+                let bucket_idx = path.ct_node_on_path(i - 1, self.height);
+                for block in &self.physical_memory[bucket_idx as usize].blocks {
+                    has_empty_slot |= block.ct_is_dummy();
+                }
+            }
+
+            let has_source = ((dest.ct_eq(&TreeHeight::MAX) & has_empty_slot)
+                | target[i as usize].0.ct_ne(&TreeHeight::MAX))
+                & deepest[i as usize].0.ct_ne(&TreeHeight::MAX);
+
+            src.conditional_assign(&deepest[i as usize].0, has_source);
+            src_offset.conditional_assign(&deepest[i as usize].1, has_source);
+            dest.conditional_assign(&i, has_source);
+        }
+
+        Ok(target)
+    }
+
+    fn conditional_remove(
         &mut self,
         bucket_idx: TreeIndex,
+        bucket_offset: u32,
         choice: Choice,
     ) -> Result<CircuitOramBlock<V>, OramError> {
-        todo!()
+        let mut result = CircuitOramBlock::dummy();
+
+        for (offset, slot) in self.physical_memory[bucket_idx as usize]
+            .blocks
+            .iter_mut()
+            .enumerate()
+        {
+            let should_remove = choice & (offset as u32).ct_eq(&bucket_offset);
+
+            result.conditional_assign(slot, should_remove);
+            slot.conditional_assign(&CircuitOramBlock::dummy(), should_remove);
+        }
+
+        assert!(bool::from(result.ct_is_dummy().ct_eq(&!choice)));
+
+        Ok(result)
     }
 
     fn conditional_insert(
@@ -400,7 +522,20 @@ impl<V: OramBlock, const Z: BucketSize, const AB: BlockSize> CircuitOram<V, Z, A
         block: CircuitOramBlock<V>,
         choice: Choice,
     ) -> Result<(), OramError> {
-        todo!()
+        let mut inserted = Choice::from(0);
+
+        for slot in &mut self.physical_memory[bucket_idx as usize].blocks {
+            let is_dummy = slot.ct_is_dummy();
+            let should_insert = choice & !inserted & is_dummy;
+
+            slot.conditional_assign(&block, should_insert);
+
+            inserted |= should_insert;
+        }
+
+        assert!(bool::from(choice.ct_eq(&inserted)));
+
+        Ok(())
     }
 }
 

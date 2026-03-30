@@ -18,14 +18,15 @@ use rand::{CryptoRng, RngExt};
 
 #[cfg(not(feature = "full_reconstruction"))]
 use subtle::ConstantTimeEq;
+use subtle::{Choice, ConditionallySelectable};
 
 use super::{position_map::PositionMap, stash::ObliviousStash};
 use crate::{
     Address, BlockSize, BucketSize, Oram, OramBlock, OramError, OramMode, RecursionCutoff,
     StashSize,
-    bucket::{BlockMetadata, Bucket, PositionBlock},
+    bucket::{BlockMetadata, Bucket, CircuitOramBlock, PositionBlock},
     linear_time_oram::LinearTimeOram,
-    utils::{CompleteBinaryTreeIndex, TreeHeight},
+    utils::{CompleteBinaryTreeIndex, TreeHeight, TreeIndex},
 };
 
 /// The default cutoff size in blocks
@@ -89,9 +90,12 @@ pub struct CircuitOram<V: OramBlock, const Z: BucketSize, const AB: BlockSize> {
     /// The Circuit ORAM stash.
     stash: ObliviousStash<V>,
     /// The Circuit ORAM position map.
+    // TODO: use a different block size?
     position_map: PositionMap<AB, Z>,
     /// The height of the Circuit ORAM tree data structure.
     height: TreeHeight,
+    /// The counter used for the reverse-lexicographic deterministic path eviction.
+    timestep: TreeIndex,
     /// Current mode.
     mode: OramMode,
     /// The set of blocks accessed in off mode. Their paths will be evicted when ORAM is turned on.
@@ -245,7 +249,7 @@ impl<V: OramBlock, const Z: BucketSize, const AB: BlockSize> CircuitOram<V, Z, A
         let height: u64 = (block_capacity.ilog2() - 1).into();
 
         let path_size = u64::try_from(Z)? * (height + 1);
-        let stash = ObliviousStash::new(path_size, overflow_size, block_capacity)?;
+        let stash = ObliviousStash::new(path_size, overflow_size)?;
 
         // physical_memory holds `block_capacity` buckets, each storing up to Z blocks.
         // The number of leaves is `block_capacity` / 2, which the original Path ORAM paper's experiments
@@ -281,6 +285,7 @@ impl<V: OramBlock, const Z: BucketSize, const AB: BlockSize> CircuitOram<V, Z, A
             stash,
             position_map,
             height,
+            timestep: 0,
             mode: OramMode::On,
             blocks_accessed_in_off_mode: HashMap::new(),
         })
@@ -289,6 +294,113 @@ impl<V: OramBlock, const Z: BucketSize, const AB: BlockSize> CircuitOram<V, Z, A
     #[cfg(test)]
     pub(crate) fn stash_occupancy(&self) -> StashSize {
         self.stash.occupancy()
+    }
+
+    fn read_and_rm(&mut self, address: Address, path_to_evict: TreeIndex) -> Result<V, OramError> {
+        let mut result = V::default();
+        let mut bucket_idx = usize::try_from(path_to_evict)?;
+
+        let dummy = CircuitOramBlock::dummy();
+
+        while bucket_idx > 0 {
+            for block in &mut self.physical_memory[bucket_idx].blocks {
+                let is_requested_block = block.address.ct_eq(&address);
+                result.conditional_assign(&block.value, is_requested_block);
+                block.conditional_assign(&dummy, is_requested_block);
+            }
+            bucket_idx >>= 1;
+        }
+
+        for entry in &mut self.stash.entries {
+            let is_requested_block = entry.block.address.ct_eq(&address);
+            result.conditional_assign(&entry.block.value, is_requested_block);
+            entry.block.conditional_assign(&dummy, is_requested_block);
+        }
+
+        Ok(result)
+    }
+
+    fn evict(&mut self) -> Result<(), OramError> {
+        self.evict_deterministic()
+    }
+
+    fn evict_deterministic(&mut self) -> Result<(), OramError> {
+        let path_0 = self.next_eviction_path();
+        let path_1 = self.next_eviction_path();
+
+        self.evict_once_fast(path_0)?;
+        self.evict_once_fast(path_1)?;
+
+        Ok(())
+    }
+
+    /// Choose the next eviction path using the reverse-lexicographic order
+    fn next_eviction_path(&mut self) -> TreeIndex {
+        let path = (1 << self.height) + (self.timestep.reverse_bits() >> (64 - self.height));
+        self.timestep = (self.timestep + 1) & ((1 << self.height) - 1);
+        path
+    }
+
+    fn evict_once_fast(&mut self, path: TreeIndex) -> Result<(), OramError> {
+        let deepest = self.prepare_deepest()?;
+        let target = self.prepare_target(&deepest)?;
+
+        let mut hold = CircuitOramBlock::dummy();
+        let mut dest = TreeHeight::MAX;
+
+        for i in 0..=self.height + 1 {
+            let mut towrite = CircuitOramBlock::dummy();
+
+            let is_dest = !hold.ct_is_dummy() & i.ct_eq(&dest);
+            {
+                towrite.conditional_assign(&hold, is_dest);
+                hold.conditional_assign(&CircuitOramBlock::dummy(), is_dest);
+                dest.conditional_assign(&TreeHeight::MAX, is_dest);
+            }
+
+            {
+                let has_target = target[i as usize].ct_ne(&TreeHeight::MAX);
+                let deepest_block = if i == 0 {
+                    self.stash.conditional_remove_deepest(has_target)?
+                } else {
+                    self.conditional_remove_deepest(
+                        path.ct_node_on_path(self.height, i - 1),
+                        has_target,
+                    )?
+                };
+                hold.conditional_assign(&deepest_block, has_target);
+                dest.conditional_assign(&target[i as usize], has_target);
+            }
+
+            self.conditional_insert(path.ct_node_on_path(self.height, i - 1), towrite, is_dest)?;
+        }
+
+        Ok(())
+    }
+
+    fn prepare_deepest(&self) -> Result<Vec<TreeHeight>, OramError> {
+        todo!()
+    }
+
+    fn prepare_target(&self, deepest: &[TreeHeight]) -> Result<Vec<TreeHeight>, OramError> {
+        todo!()
+    }
+
+    fn conditional_remove_deepest(
+        &mut self,
+        bucket_idx: TreeIndex,
+        choice: Choice,
+    ) -> Result<CircuitOramBlock<V>, OramError> {
+        todo!()
+    }
+
+    fn conditional_insert(
+        &mut self,
+        bucket_idx: TreeIndex,
+        block: CircuitOramBlock<V>,
+        choice: Choice,
+    ) -> Result<(), OramError> {
+        todo!()
     }
 }
 
@@ -315,19 +427,14 @@ impl<V: OramBlock, const Z: BucketSize, const AB: BlockSize> Oram for CircuitOra
                         .assigned_leaf
                 };
 
+                let result = self.read_and_rm(address, path_to_evict)?;
+
                 self.stash
-                    .read_from_path(&mut self.physical_memory, path_to_evict)?;
+                    .add_block(address, new_position, callback(&result))?;
 
-                // Scan the stash for the target block, read its value into `result`,
-                // and overwrite its position (and possibly its value).
-                let result = self.stash.access(address, new_position, callback);
+                self.evict()?;
 
-                // Evict blocks from the stash into the path that was just read,
-                // replacing them with dummy blocks.
-                self.stash
-                    .write_to_path(&mut self.physical_memory, path_to_evict)?;
-
-                result
+                Ok(result)
             }
             OramMode::Off => {
                 // In off mode we do not perform dummy accesses

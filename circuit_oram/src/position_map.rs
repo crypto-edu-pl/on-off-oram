@@ -87,23 +87,7 @@ impl<const AB: BlockSize, const Z: BucketSize> PositionMap<AB, Z> {
             Ok(Self::Base(LinearTimeOram::new(block_capacity)?))
         } else {
             let block_capacity = number_of_addresses / ab_address;
-            let max_batch_size = {
-                #[cfg(any(
-                    feature = "exact_locations_in_position_map_and_batch_position_map",
-                    feature = "batched_turning_on"
-                ))]
-                {
-                    u64::from(block_capacity.ilog2()) * u64::try_from(Z)?
-                }
-
-                #[cfg(not(any(
-                    feature = "exact_locations_in_position_map_and_batch_position_map",
-                    feature = "batched_turning_on"
-                )))]
-                {
-                    1
-                }
-            };
+            let max_batch_size = 1;
 
             Ok(Self::Recursive(Box::new(CircuitOram::new_with_parameters(
                 block_capacity,

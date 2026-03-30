@@ -14,23 +14,13 @@ use std::{
     collections::HashMap,
 };
 
-#[cfg(any(
-    not(feature = "do_not_cache_block_values"),
-    feature = "direct_accesses_in_off_mode"
-))]
+#[cfg(not(feature = "do_not_cache_block_values"))]
 use std::collections::hash_map;
-
-#[cfg(feature = "exact_locations_in_position_map")]
-use std::slice::SliceIndex;
 
 use rand::{CryptoRng, RngExt};
 
-#[cfg(feature = "batched_turning_on")]
-use static_assertions::const_assert;
 #[cfg(not(feature = "full_reconstruction"))]
 use subtle::ConstantTimeEq;
-#[cfg(feature = "exact_locations_in_position_map")]
-use subtle::{ConditionallySelectable, ConstantTimeLess};
 
 use super::{position_map::PositionMap, stash::ObliviousStash};
 use crate::{
@@ -40,12 +30,6 @@ use crate::{
     linear_time_oram::LinearTimeOram,
     utils::{CompleteBinaryTreeIndex, TreeHeight},
 };
-
-#[cfg(feature = "direct_accesses_in_off_mode")]
-use crate::bucket::CircuitOramBlock;
-
-#[cfg(feature = "exact_locations_in_position_map")]
-use crate::{stash::StashEntry, utils::TreeIndex};
 
 /// The default cutoff size in blocks
 /// below which `CircuitOram` uses a linear position map instead of a recursive one.
@@ -116,26 +100,10 @@ pub struct CircuitOram<V: OramBlock, const Z: BucketSize, const AB: BlockSize> {
     /// The set of blocks accessed in off mode. Their paths will be evicted when ORAM is turned on.
     ///
     /// This is not an oblivious data structure, but we use it only in off mode so it's fine.
-    #[cfg(feature = "direct_accesses_in_off_mode")]
-    blocks_accessed_in_off_mode: HashMap<Address, BlockLocation>,
-    #[cfg(all(
-        not(feature = "direct_accesses_in_off_mode"),
-        not(feature = "do_not_cache_block_values"),
-    ))]
+    #[cfg(not(feature = "do_not_cache_block_values"))]
     blocks_accessed_in_off_mode: HashMap<Address, V>,
-    #[cfg(all(
-        not(feature = "direct_accesses_in_off_mode"),
-        feature = "do_not_cache_block_values",
-    ))]
+    #[cfg(feature = "do_not_cache_block_values")]
     blocks_accessed_in_off_mode: HashMap<Address, ()>,
-}
-
-#[cfg(feature = "direct_accesses_in_off_mode")]
-#[derive(Debug, Copy, Clone)]
-enum BlockLocation {
-    OramTree { bucket: usize, offset: usize },
-    Stash { offset: usize },
-    Dummy,
 }
 
 /// An `Oram` suitable for most use cases, with reasonable default choices of parameters.
@@ -222,17 +190,7 @@ impl<V: OramBlock> DefaultOram<V> {
                 block_capacity,
             )?)))
         } else {
-            let max_batch_size = {
-                #[cfg(feature = "batched_turning_on")]
-                {
-                    u64::from(block_capacity.ilog2()) * u64::try_from(DEFAULT_BLOCKS_PER_BUCKET)?
-                }
-
-                #[cfg(not(feature = "batched_turning_on"))]
-                {
-                    1
-                }
-            };
+            let max_batch_size = 1;
             Ok(Self(DefaultOramBackend::Circuit(CircuitOram::<
                 V,
                 DEFAULT_BLOCKS_PER_BUCKET,
@@ -330,11 +288,6 @@ impl<V: OramBlock, const Z: BucketSize, const AB: BlockSize> CircuitOram<V, Z, A
             let mut data = [BlockMetadata::default(); AB];
             for metadata in &mut data {
                 metadata.assigned_leaf = rng.random_range(first_leaf_index..=last_leaf_index);
-                #[cfg(feature = "exact_locations_in_position_map")]
-                {
-                    metadata.exact_bucket = BlockMetadata::NOT_IN_TREE;
-                    metadata.exact_offset = BlockMetadata::UNINITIALIZED;
-                }
             }
             let position_block = PositionBlock { data };
             position_map.write_position_block(block_index * ab_address, position_block, rng)?;
@@ -348,51 +301,6 @@ impl<V: OramBlock, const Z: BucketSize, const AB: BlockSize> CircuitOram<V, Z, A
             mode: OramMode::On,
             blocks_accessed_in_off_mode: HashMap::new(),
         })
-    }
-
-    #[cfg(feature = "exact_locations_in_position_map")]
-    fn batch_update_position_map<
-        R: CryptoRng,
-        RangeT: SliceIndex<[StashEntry<V>], Output = [StashEntry<V>]>,
-    >(
-        &mut self,
-        range: RangeT,
-        rng: &mut R,
-    ) -> Result<(), OramError> {
-        let stash_entries = &self.stash.entries[range];
-
-        // Create a batch of position map updates that contains exactly stash_entries.len()
-        // unique updates (each for a different address).
-
-        let mut updates = Vec::with_capacity(stash_entries.len());
-        let base_dummy_address = self.block_capacity()?;
-
-        // Put the updates resulting from the stash entries in the update array.
-        // Change the address of dummy updates to a unique out-of-bounds address.
-        for (i, entry) in stash_entries.iter().enumerate() {
-            let is_in_tree = entry.exact_bucket.ct_ne(&BlockMetadata::NOT_IN_TREE);
-            let exact_offset =
-                u64::conditional_select(&i.try_into()?, &entry.exact_offset, is_in_tree);
-
-            let metadata = BlockMetadata {
-                assigned_leaf: entry.block.position,
-                exact_bucket: entry.exact_bucket,
-                exact_offset,
-            };
-
-            let is_dummy = entry.block.ct_is_dummy();
-            let address = Address::conditional_select(
-                &entry.block.address,
-                &(base_dummy_address + Address::try_from(i)?),
-                is_dummy,
-            );
-
-            updates.push((address, metadata));
-        }
-
-        self.position_map.batch_write(&updates, rng)?;
-
-        Ok(())
     }
 
     #[cfg(test)]
@@ -416,31 +324,12 @@ impl<V: OramBlock, const Z: BucketSize, const AB: BlockSize> Oram for CircuitOra
                 let new_position = CompleteBinaryTreeIndex::random_leaf(self.height, rng)?;
 
                 let path_to_evict = {
-                    #[cfg(feature = "exact_locations_in_position_map")]
-                    {
-                        // If the address is out of bounds (>= block_capacity), the access will return the dummy value and update nothing
-                        let is_real_access = address.ct_lt(&self.block_capacity()?);
-
-                        let metadata = self.position_map.read(address, rng)?;
-
-                        // If this is a dummy access, we can use new_position as the path to read,
-                        // since we won't assign it to anything anyway
-                        TreeIndex::conditional_select(
-                            &new_position,
-                            &metadata.assigned_leaf,
-                            is_real_access,
-                        )
-                    }
-
-                    #[cfg(not(feature = "exact_locations_in_position_map"))]
-                    {
-                        let new_metadata = BlockMetadata {
-                            assigned_leaf: new_position,
-                        };
-                        self.position_map
-                            .write(address, new_metadata, rng)?
-                            .assigned_leaf
-                    }
+                    let new_metadata = BlockMetadata {
+                        assigned_leaf: new_position,
+                    };
+                    self.position_map
+                        .write(address, new_metadata, rng)?
+                        .assigned_leaf
                 };
 
                 self.stash
@@ -455,55 +344,6 @@ impl<V: OramBlock, const Z: BucketSize, const AB: BlockSize> Oram for CircuitOra
                 self.stash
                     .write_to_path(&mut self.physical_memory, path_to_evict)?;
 
-                #[cfg(feature = "exact_locations_in_position_map")]
-                {
-                    #[cfg(feature = "exact_locations_in_position_map_and_batch_position_map")]
-                    {
-                        // Update the position map. Limit the batch size so that it fits in the position map's stash
-                        for batch_begin in
-                            (0..self.stash.entries.len()).step_by(self.stash.path_size.try_into()?)
-                        {
-                            let batch_end = min(
-                                batch_begin + usize::try_from(self.stash.path_size)?,
-                                self.stash.entries.len(),
-                            );
-                            self.batch_update_position_map(batch_begin..batch_end, rng)?;
-                        }
-                    }
-
-                    #[cfg(not(feature = "exact_locations_in_position_map_and_batch_position_map"))]
-                    {
-                        for (i, entry) in self.stash.entries.iter().enumerate() {
-                            let is_in_tree = entry.exact_bucket.ct_ne(&BlockMetadata::NOT_IN_TREE);
-                            let exact_offset = u64::conditional_select(
-                                &i.try_into()?,
-                                &entry.exact_offset,
-                                is_in_tree,
-                            );
-
-                            let new_metadata = BlockMetadata {
-                                assigned_leaf: entry.block.position,
-                                exact_bucket: entry.exact_bucket,
-                                exact_offset,
-                            };
-
-                            // If the entry is a dummy, write to a dummy position at the end of the map so that no real
-                            // position gets overwritten
-                            let entry_is_dummy = entry
-                                .block
-                                .address
-                                .ct_eq(&CircuitOramBlock::<V>::DUMMY_ADDRESS);
-                            let entry_address = Address::conditional_select(
-                                &entry.block.address,
-                                &self.block_capacity()?,
-                                entry_is_dummy,
-                            );
-
-                            self.position_map.write(entry_address, new_metadata, rng)?;
-                        }
-                    }
-                }
-
                 result
             }
             OramMode::Off => {
@@ -516,232 +356,119 @@ impl<V: OramBlock, const Z: BucketSize, const AB: BlockSize> Oram for CircuitOra
                 }
 
                 let result = {
-                    #[cfg(feature = "direct_accesses_in_off_mode")]
+                    #[cfg(not(feature = "do_not_cache_block_values"))]
                     {
-                        // We are in off mode so we don't care about oblivious operations.
-
-                        // Cache the block position - we have log N levels of recursion, so without caching
-                        // we still have O(log N) overhead on every access even if we store the exact block locations
-                        let block_location = match self.blocks_accessed_in_off_mode.entry(address) {
-                            hash_map::Entry::Occupied(occupied) => *occupied.get(),
+                        let value: &mut V = match self.blocks_accessed_in_off_mode.entry(address) {
+                            hash_map::Entry::Occupied(occupied) => occupied.into_mut(),
                             hash_map::Entry::Vacant(vacant) => {
                                 let metadata = self.position_map.read(address, rng)?;
 
-                                let block_location = {
-                                    #[cfg(feature = "exact_locations_in_position_map")]
+                                let result = {
+                                    #[cfg(not(feature = "full_reconstruction"))]
                                     {
-                                        match metadata {
-                                            BlockMetadata {
-                                                exact_bucket: BlockMetadata::NOT_IN_TREE,
-                                                exact_offset: BlockMetadata::UNINITIALIZED,
-                                                ..
-                                            } => BlockLocation::Dummy,
-                                            BlockMetadata {
-                                                exact_bucket: BlockMetadata::NOT_IN_TREE,
-                                                exact_offset,
-                                                ..
-                                            } => BlockLocation::Stash {
-                                                offset: exact_offset.try_into()?,
-                                            },
-                                            BlockMetadata {
-                                                exact_bucket,
-                                                exact_offset,
-                                                ..
-                                            } => BlockLocation::OramTree {
-                                                bucket: exact_bucket.try_into()?,
-                                                offset: exact_offset.try_into()?,
-                                            },
-                                        }
-                                    }
-
-                                    #[cfg(not(feature = "exact_locations_in_position_map"))]
-                                    {
-                                        let mut location = BlockLocation::Dummy;
+                                        let mut result = V::default();
                                         let mut bucket_idx =
                                             usize::try_from(metadata.assigned_leaf)?;
 
-                                        'buckets: while bucket_idx > 0 {
-                                            for (offset, block) in self.physical_memory[bucket_idx]
-                                                .blocks
-                                                .iter()
-                                                .enumerate()
-                                            {
-                                                // Even though we are in off mode, we still want to use ct_eq - we must not leak
-                                                // the addresses of blocks other than the accessed one
-                                                if block.address.ct_eq(&address).into() {
-                                                    location = BlockLocation::OramTree {
-                                                        bucket: bucket_idx,
-                                                        offset,
-                                                    };
-                                                    break 'buckets;
-                                                }
+                                        // We still need this to be oblivious, because the exact locations of blocks depend on the paths assigned to other blocks
+                                        while bucket_idx > 0 {
+                                            for block in &self.physical_memory[bucket_idx].blocks {
+                                                let is_requested_block =
+                                                    block.address.ct_eq(&address);
+                                                result.conditional_assign(
+                                                    &block.value,
+                                                    is_requested_block,
+                                                );
                                             }
                                             bucket_idx >>= 1;
                                         }
 
-                                        if matches!(location, BlockLocation::Dummy) {
-                                            for (offset, entry) in
-                                                self.stash.entries.iter().enumerate().skip(
-                                                    usize::try_from(self.stash.path_size).unwrap(),
-                                                )
-                                            {
-                                                // Even though we are in off mode, we still want to use ct_eq - we must not leak
-                                                // the addresses of blocks other than the accessed one
-                                                if entry.block.address.ct_eq(&address).into() {
-                                                    location = BlockLocation::Stash { offset };
-                                                    break;
+                                        for entry in &self.stash.entries
+                                            [usize::try_from(self.stash.path_size).unwrap()..]
+                                        {
+                                            let is_requested_block =
+                                                entry.block.address.ct_eq(&address);
+                                            result.conditional_assign(
+                                                &entry.block.value,
+                                                is_requested_block,
+                                            );
+                                        }
+                                        result
+                                    }
+
+                                    #[cfg(feature = "full_reconstruction")]
+                                    'result: {
+                                        // We do not need this to be oblivious, since we're going to reconstruct the full ORAM tree anyway
+                                        // We search the ORAM tree from the top to take advantage of locality of references (recently accessed)
+                                        // blocks are likely to be near the root)
+                                        for i in (0..=self.height).rev() {
+                                            let bucket_idx =
+                                                usize::try_from(metadata.assigned_leaf)? >> i;
+                                            for block in &self.physical_memory[bucket_idx].blocks {
+                                                if block.address == address {
+                                                    break 'result block.value;
                                                 }
                                             }
                                         }
 
-                                        location
+                                        for entry in &self.stash.entries
+                                            [usize::try_from(self.stash.path_size).unwrap()..]
+                                        {
+                                            if entry.block.address == address {
+                                                break 'result entry.block.value;
+                                            }
+                                        }
+
+                                        V::default()
                                     }
                                 };
 
-                                *vacant.insert(block_location)
+                                vacant.insert(result)
                             }
                         };
 
-                        let block = match block_location {
-                            BlockLocation::Stash { offset } => {
-                                let stash_entry = &mut self.stash.entries[offset];
-                                &mut stash_entry.block
-                            }
-                            BlockLocation::OramTree { bucket, offset } => {
-                                let bucket = &mut self.physical_memory[bucket];
-                                &mut bucket.blocks[offset]
-                            }
-                            BlockLocation::Dummy => &mut CircuitOramBlock::dummy(),
-                        };
-
-                        let result = block.value;
-                        block.value = callback(&block.value);
+                        let result = *value;
+                        *value = callback(value);
                         result
                     }
 
-                    #[cfg(not(feature = "direct_accesses_in_off_mode"))]
+                    #[cfg(feature = "do_not_cache_block_values")]
                     {
-                        #[cfg(not(feature = "do_not_cache_block_values"))]
-                        {
-                            let value: &mut V = match self
-                                .blocks_accessed_in_off_mode
-                                .entry(address)
-                            {
-                                hash_map::Entry::Occupied(occupied) => occupied.into_mut(),
-                                hash_map::Entry::Vacant(vacant) => {
-                                    let metadata = self.position_map.read(address, rng)?;
+                        self.blocks_accessed_in_off_mode.insert(address, ());
 
-                                    let result = {
-                                        #[cfg(not(feature = "full_reconstruction"))]
-                                        {
-                                            let mut result = V::default();
-                                            let mut bucket_idx =
-                                                usize::try_from(metadata.assigned_leaf)?;
+                        let metadata = self.position_map.read(address, rng)?;
 
-                                            // We still need this to be oblivious, because the exact locations of blocks depend on the paths assigned to other blocks
-                                            while bucket_idx > 0 {
-                                                for block in
-                                                    &self.physical_memory[bucket_idx].blocks
-                                                {
-                                                    let is_requested_block =
-                                                        block.address.ct_eq(&address);
-                                                    result.conditional_assign(
-                                                        &block.value,
-                                                        is_requested_block,
-                                                    );
-                                                }
-                                                bucket_idx >>= 1;
-                                            }
+                        let mut result = V::default();
+                        let mut bucket_idx = usize::try_from(metadata.assigned_leaf)?;
 
-                                            for entry in &self.stash.entries
-                                                [usize::try_from(self.stash.path_size).unwrap()..]
-                                            {
-                                                let is_requested_block =
-                                                    entry.block.address.ct_eq(&address);
-                                                result.conditional_assign(
-                                                    &entry.block.value,
-                                                    is_requested_block,
-                                                );
-                                            }
-                                            result
-                                        }
+                        // We still need this to be oblivious, because the exact locations of blocks depend on the paths assigned to other blocks
+                        while bucket_idx > 0 {
+                            for block in &mut self.physical_memory[bucket_idx].blocks {
+                                let is_requested_block = block.address.ct_eq(&address);
+                                result.conditional_assign(&block.value, is_requested_block);
 
-                                        #[cfg(feature = "full_reconstruction")]
-                                        'result: {
-                                            // We do not need this to be oblivious, since we're going to reconstruct the full ORAM tree anyway
-                                            // We search the ORAM tree from the top to take advantage of locality of references (recently accessed)
-                                            // blocks are likely to be near the root)
-                                            for i in (0..=self.height).rev() {
-                                                let bucket_idx =
-                                                    usize::try_from(metadata.assigned_leaf)? >> i;
-                                                for block in
-                                                    &self.physical_memory[bucket_idx].blocks
-                                                {
-                                                    if block.address == address {
-                                                        break 'result block.value;
-                                                    }
-                                                }
-                                            }
-
-                                            for entry in &self.stash.entries
-                                                [usize::try_from(self.stash.path_size).unwrap()..]
-                                            {
-                                                if entry.block.address == address {
-                                                    break 'result entry.block.value;
-                                                }
-                                            }
-
-                                            V::default()
-                                        }
-                                    };
-
-                                    vacant.insert(result)
-                                }
-                            };
-
-                            let result = *value;
-                            *value = callback(value);
-                            result
-                        }
-
-                        #[cfg(feature = "do_not_cache_block_values")]
-                        {
-                            self.blocks_accessed_in_off_mode.insert(address, ());
-
-                            let metadata = self.position_map.read(address, rng)?;
-
-                            let mut result = V::default();
-                            let mut bucket_idx = usize::try_from(metadata.assigned_leaf)?;
-
-                            // We still need this to be oblivious, because the exact locations of blocks depend on the paths assigned to other blocks
-                            while bucket_idx > 0 {
-                                for block in &mut self.physical_memory[bucket_idx].blocks {
-                                    let is_requested_block = block.address.ct_eq(&address);
-                                    result.conditional_assign(&block.value, is_requested_block);
-
-                                    let new_value = callback(&block.value);
-                                    block
-                                        .value
-                                        .conditional_assign(&new_value, is_requested_block);
-                                }
-                                bucket_idx >>= 1;
-                            }
-
-                            for entry in &mut self.stash.entries
-                                [usize::try_from(self.stash.path_size).unwrap()..]
-                            {
-                                let is_requested_block = entry.block.address.ct_eq(&address);
-                                result.conditional_assign(&entry.block.value, is_requested_block);
-
-                                let new_value = callback(&entry.block.value);
-                                entry
-                                    .block
+                                let new_value = callback(&block.value);
+                                block
                                     .value
                                     .conditional_assign(&new_value, is_requested_block);
                             }
-
-                            result
+                            bucket_idx >>= 1;
                         }
+
+                        for entry in &mut self.stash.entries
+                            [usize::try_from(self.stash.path_size).unwrap()..]
+                        {
+                            let is_requested_block = entry.block.address.ct_eq(&address);
+                            result.conditional_assign(&entry.block.value, is_requested_block);
+
+                            let new_value = callback(&entry.block.value);
+                            entry
+                                .block
+                                .value
+                                .conditional_assign(&new_value, is_requested_block);
+                        }
+
+                        result
                     }
                 };
 
@@ -764,63 +491,36 @@ impl<V: OramBlock, const Z: BucketSize, const AB: BlockSize> Oram for CircuitOra
                 )?;
 
                 let mut paths_to_evict = {
-                    #[cfg(feature = "exact_locations_in_position_map")]
+                    let mut paths = Vec::with_capacity(callbacks.len());
+
+                    for batch_begin in
+                        (0..callbacks.len()).step_by(self.stash.path_size.try_into()?)
                     {
-                        let block_capacity = self.block_capacity()?;
-                        self.position_map
-                            .batch_read(
-                                &callbacks
-                                    .iter()
-                                    .map(|(address, _)| *address)
-                                    .collect::<Vec<_>>(),
-                                rng,
-                            )?
-                            .into_iter()
-                            .enumerate()
-                            .map(|(i, metadata)| {
-                                let is_real_access = callbacks[i].0.ct_lt(&block_capacity);
-                                TreeIndex::conditional_select(
-                                    &new_positions[i],
-                                    &metadata.assigned_leaf,
-                                    is_real_access,
-                                )
-                            })
-                            .collect::<Vec<_>>()
+                        let batch_end = min(
+                            batch_begin + usize::try_from(self.stash.path_size)?,
+                            callbacks.len(),
+                        );
+                        paths.extend(
+                            self.position_map
+                                .batch_write(
+                                    &callbacks[batch_begin..batch_end]
+                                        .iter()
+                                        .map(|(address, _)| *address)
+                                        .zip(new_positions[batch_begin..batch_end].iter().map(
+                                            |new_position| BlockMetadata {
+                                                assigned_leaf: *new_position,
+                                            },
+                                        ))
+                                        .collect::<Vec<_>>(),
+                                    rng,
+                                )?
+                                .into_iter()
+                                .map(|metadata| metadata.assigned_leaf)
+                                .collect::<Vec<_>>(),
+                        );
                     }
 
-                    #[cfg(not(feature = "exact_locations_in_position_map"))]
-                    {
-                        let mut paths = Vec::with_capacity(callbacks.len());
-
-                        for batch_begin in
-                            (0..callbacks.len()).step_by(self.stash.path_size.try_into()?)
-                        {
-                            let batch_end = min(
-                                batch_begin + usize::try_from(self.stash.path_size)?,
-                                callbacks.len(),
-                            );
-                            paths.extend(
-                                self.position_map
-                                    .batch_write(
-                                        &callbacks[batch_begin..batch_end]
-                                            .iter()
-                                            .map(|(address, _)| *address)
-                                            .zip(new_positions[batch_begin..batch_end].iter().map(
-                                                |new_position| BlockMetadata {
-                                                    assigned_leaf: *new_position,
-                                                },
-                                            ))
-                                            .collect::<Vec<_>>(),
-                                        rng,
-                                    )?
-                                    .into_iter()
-                                    .map(|metadata| metadata.assigned_leaf)
-                                    .collect::<Vec<_>>(),
-                            );
-                        }
-
-                        paths
-                    }
+                    paths
                 };
                 paths_to_evict.sort_by_key(|x| cmp::Reverse(*x));
                 paths_to_evict.dedup();
@@ -832,20 +532,6 @@ impl<V: OramBlock, const Z: BucketSize, const AB: BlockSize> Oram for CircuitOra
 
                 self.stash
                     .write_to_paths(&mut self.physical_memory, &paths_to_evict)?;
-
-                #[cfg(feature = "exact_locations_in_position_map")]
-                {
-                    // Update the position map. Limit the batch size so that it fits in the position map's stash
-                    for batch_begin in
-                        (0..self.stash.entries.len()).step_by(self.stash.path_size.try_into()?)
-                    {
-                        let batch_end = min(
-                            batch_begin + usize::try_from(self.stash.path_size)?,
-                            self.stash.entries.len(),
-                        );
-                        self.batch_update_position_map(batch_begin..batch_end, rng)?;
-                    }
-                }
 
                 Ok(result)
             }
@@ -862,54 +548,32 @@ impl<V: OramBlock, const Z: BucketSize, const AB: BlockSize> Oram for CircuitOra
         // Evictions in the position map will happen during the reads below
         self.position_map.turn_on_without_evicting()?;
 
-        #[cfg(not(feature = "batched_turning_on"))]
+        #[cfg(feature = "do_not_cache_block_values")]
         {
-            #[cfg(feature = "do_not_cache_block_values")]
-            {
-                for address in mem::take(&mut self.blocks_accessed_in_off_mode).keys() {
-                    // Reading the block causes its path to be evicted.
-                    self.read(*address, rng)?;
-                }
-            }
-
-            #[cfg(not(feature = "do_not_cache_block_values"))]
-            {
-                #[cfg(not(feature = "full_reconstruction"))]
-                {
-                    for (address, value) in mem::take(&mut self.blocks_accessed_in_off_mode) {
-                        self.write(address, value, rng)?;
-                    }
-                }
-
-                #[cfg(feature = "full_reconstruction")]
-                {
-                    for address in 0..self.block_capacity()? {
-                        if let Some(value) = self.blocks_accessed_in_off_mode.remove(&address) {
-                            self.write(address, value, rng)?;
-                        } else {
-                            self.read(address, rng)?;
-                        }
-                    }
-                }
+            for address in mem::take(&mut self.blocks_accessed_in_off_mode).keys() {
+                // Reading the block causes its path to be evicted.
+                self.read(*address, rng)?;
             }
         }
 
-        #[cfg(feature = "batched_turning_on")]
+        #[cfg(not(feature = "do_not_cache_block_values"))]
         {
-            // The case with this feature disabled is not implemented
-            const_assert!(cfg!(feature = "direct_accesses_in_off_mode"));
+            #[cfg(not(feature = "full_reconstruction"))]
+            {
+                for (address, value) in mem::take(&mut self.blocks_accessed_in_off_mode) {
+                    self.write(address, value, rng)?;
+                }
+            }
 
-            let addresses = mem::take(&mut self.blocks_accessed_in_off_mode)
-                .keys()
-                .copied()
-                .collect::<Vec<_>>();
-
-            for batch_begin in (0..addresses.len()).step_by(self.stash.path_size.try_into()?) {
-                let batch_end = min(
-                    batch_begin + usize::try_from(self.stash.path_size)?,
-                    addresses.len(),
-                );
-                self.batch_read(&addresses[batch_begin..batch_end], rng)?;
+            #[cfg(feature = "full_reconstruction")]
+            {
+                for address in 0..self.block_capacity()? {
+                    if let Some(value) = self.blocks_accessed_in_off_mode.remove(&address) {
+                        self.write(address, value, rng)?;
+                    } else {
+                        self.read(address, rng)?;
+                    }
+                }
             }
         }
 

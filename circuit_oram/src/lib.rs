@@ -94,21 +94,12 @@ use rand::CryptoRng;
 use subtle::ConditionallySelectable;
 use thiserror::Error;
 
-#[cfg(all(
-    feature = "full_reconstruction",
-    any(
-        feature = "do_not_cache_block_values",
-        feature = "direct_accesses_in_off_mode",
-        feature = "exact_locations_in_position_map",
-        feature = "exact_locations_in_position_map_and_batch_position_map",
-        feature = "batched_turning_on",
-    )
-))]
+#[cfg(all(feature = "full_reconstruction", feature = "do_not_cache_block_values"))]
 compile_error!("Interactions of `full_reconstruction` with other features are not implemented.");
 
 pub(crate) mod bucket;
-pub mod linear_time_oram;
 pub mod circuit_oram;
+pub mod linear_time_oram;
 pub(crate) mod position_map;
 pub(crate) mod stash;
 #[cfg(test)]
@@ -116,8 +107,8 @@ mod test_utils;
 pub(crate) mod utils;
 
 pub use crate::bucket::BlockValue;
-pub use crate::circuit_oram::DefaultOram;
 pub use crate::circuit_oram::CircuitOram;
+pub use crate::circuit_oram::DefaultOram;
 
 /// The numeric type used to specify the size of an ORAM block in bytes.
 pub type BlockSize = usize;

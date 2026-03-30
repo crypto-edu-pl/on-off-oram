@@ -15,10 +15,5 @@ simplelog = "0.12"
 paste = "1"
 
 [features]
-
 do_not_cache_block_values = []
-direct_accesses_in_off_mode = ["do_not_cache_block_values"]
-exact_locations_in_position_map = ["direct_accesses_in_off_mode"]
-exact_locations_in_position_map_and_batch_position_map = ["exact_locations_in_position_map"]
-batched_turning_on = []
 full_reconstruction = []

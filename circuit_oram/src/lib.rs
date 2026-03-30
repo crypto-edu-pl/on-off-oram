@@ -206,35 +206,28 @@ where
     /// Perform a batch of oblivious ORAM accesses.
     fn batch_access<R: CryptoRng, F: Fn(&Self::V) -> Self::V>(
         &mut self,
-        callbacks: &[(Address, F)],
-        rng: &mut R,
-    ) -> Result<Vec<Self::V>, OramError>;
+        _callbacks: &[(Address, F)],
+        _rng: &mut R,
+    ) -> Result<Vec<Self::V>, OramError> {
+        unimplemented!("Batch accesses are not implemented for Circuit Oram")
+    }
 
     /// Perform a batch of oblivious ORAM reads.
     fn batch_read<R: CryptoRng>(
         &mut self,
-        indices: &[Address],
-        rng: &mut R,
+        _indices: &[Address],
+        _rng: &mut R,
     ) -> Result<Vec<Self::V>, OramError> {
-        let callback = |x: &Self::V| *x;
-        let callbacks = indices
-            .iter()
-            .map(|index| (*index, callback))
-            .collect::<Vec<_>>();
-        self.batch_access(&callbacks, rng)
+        unimplemented!("Batch accesses are not implemented for Circuit Oram")
     }
 
     /// Perform a batch of oblivious ORAM writes.
     fn batch_write<R: CryptoRng>(
         &mut self,
-        new_values: &[(Address, Self::V)],
-        rng: &mut R,
+        _new_values: &[(Address, Self::V)],
+        _rng: &mut R,
     ) -> Result<Vec<Self::V>, OramError> {
-        let callbacks = new_values
-            .iter()
-            .map(|(index, new_value)| (*index, |_: &Self::V| *new_value))
-            .collect::<Vec<_>>();
-        self.batch_access(&callbacks, rng)
+        unimplemented!("Batch accesses are not implemented for Circuit Oram")
     }
 
     /// Turn ORAM on - subsequent accesses will be oblivious.

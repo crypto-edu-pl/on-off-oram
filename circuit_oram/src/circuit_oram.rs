@@ -7,12 +7,9 @@
 
 //! An implementation of Circuit ORAM.
 
+use std::collections::HashMap;
 #[cfg(not(feature = "full_reconstruction"))]
 use std::mem;
-use std::{
-    cmp::{self, min},
-    collections::HashMap,
-};
 
 #[cfg(not(feature = "do_not_cache_block_values"))]
 use std::collections::hash_map;
@@ -138,17 +135,6 @@ impl<V: OramBlock> Oram for DefaultOram<V> {
         }
     }
 
-    fn batch_access<R: CryptoRng, F: Fn(&Self::V) -> Self::V>(
-        &mut self,
-        callbacks: &[(Address, F)],
-        rng: &mut R,
-    ) -> Result<Vec<Self::V>, OramError> {
-        match &mut self.0 {
-            DefaultOramBackend::Circuit(p) => p.batch_access(callbacks, rng),
-            DefaultOramBackend::Linear(l) => l.batch_access(callbacks, rng),
-        }
-    }
-
     fn turn_on<R: CryptoRng>(&mut self, rng: &mut R) -> Result<(), OramError> {
         match &mut self.0 {
             DefaultOramBackend::Circuit(p) => p.turn_on(rng),
@@ -190,7 +176,6 @@ impl<V: OramBlock> DefaultOram<V> {
                 block_capacity,
             )?)))
         } else {
-            let max_batch_size = 1;
             Ok(Self(DefaultOramBackend::Circuit(CircuitOram::<
                 V,
                 DEFAULT_BLOCKS_PER_BUCKET,
@@ -200,7 +185,6 @@ impl<V: OramBlock> DefaultOram<V> {
                 rng,
                 DEFAULT_STASH_OVERFLOW_SIZE,
                 DEFAULT_RECURSION_CUTOFF,
-                max_batch_size,
             )?)))
         }
     }
@@ -225,7 +209,6 @@ impl<V: OramBlock, const Z: BucketSize, const AB: BlockSize> CircuitOram<V, Z, A
         rng: &mut R,
         overflow_size: StashSize,
         recursion_cutoff: RecursionCutoff,
-        max_batch_size: u64,
     ) -> Result<Self, OramError> {
         log::info!("CircuitOram::new(capacity = {})", block_capacity,);
 
@@ -262,7 +245,7 @@ impl<V: OramBlock, const Z: BucketSize, const AB: BlockSize> CircuitOram<V, Z, A
         let height: u64 = (block_capacity.ilog2() - 1).into();
 
         let path_size = u64::try_from(Z)? * (height + 1);
-        let stash = ObliviousStash::new(path_size, overflow_size, max_batch_size, block_capacity)?;
+        let stash = ObliviousStash::new(path_size, overflow_size, block_capacity)?;
 
         // physical_memory holds `block_capacity` buckets, each storing up to Z blocks.
         // The number of leaves is `block_capacity` / 2, which the original Path ORAM paper's experiments
@@ -477,68 +460,6 @@ impl<V: OramBlock, const Z: BucketSize, const AB: BlockSize> Oram for CircuitOra
         }
     }
 
-    fn batch_access<R: CryptoRng, F: Fn(&Self::V) -> Self::V>(
-        &mut self,
-        callbacks: &[(Address, F)],
-        rng: &mut R,
-    ) -> Result<Vec<Self::V>, OramError> {
-        match self.mode() {
-            OramMode::On => {
-                let new_positions = CompleteBinaryTreeIndex::random_leaves(
-                    callbacks.len().try_into()?,
-                    self.height,
-                    rng,
-                )?;
-
-                let mut paths_to_evict = {
-                    let mut paths = Vec::with_capacity(callbacks.len());
-
-                    for batch_begin in
-                        (0..callbacks.len()).step_by(self.stash.path_size.try_into()?)
-                    {
-                        let batch_end = min(
-                            batch_begin + usize::try_from(self.stash.path_size)?,
-                            callbacks.len(),
-                        );
-                        paths.extend(
-                            self.position_map
-                                .batch_write(
-                                    &callbacks[batch_begin..batch_end]
-                                        .iter()
-                                        .map(|(address, _)| *address)
-                                        .zip(new_positions[batch_begin..batch_end].iter().map(
-                                            |new_position| BlockMetadata {
-                                                assigned_leaf: *new_position,
-                                            },
-                                        ))
-                                        .collect::<Vec<_>>(),
-                                    rng,
-                                )?
-                                .into_iter()
-                                .map(|metadata| metadata.assigned_leaf)
-                                .collect::<Vec<_>>(),
-                        );
-                    }
-
-                    paths
-                };
-                paths_to_evict.sort_by_key(|x| cmp::Reverse(*x));
-                paths_to_evict.dedup();
-
-                self.stash
-                    .read_from_paths(&mut self.physical_memory, &paths_to_evict)?;
-
-                let result = self.stash.batch_access(&new_positions, callbacks)?;
-
-                self.stash
-                    .write_to_paths(&mut self.physical_memory, &paths_to_evict)?;
-
-                Ok(result)
-            }
-            OramMode::Off => unimplemented!("We do not generate batch accesses in off mode."),
-        }
-    }
-
     fn block_capacity(&self) -> Result<Address, OramError> {
         Ok(u64::try_from(self.physical_memory.len())?)
     }
@@ -604,29 +525,29 @@ mod tests {
     use rand::{SeedableRng, rngs::StdRng};
 
     // Test default parameters. For the small capacity used in the tests, this means a linear position map.
-    create_circuit_oram_correctness_tests!(4, 8, 16384, 40, 1);
+    create_circuit_oram_correctness_tests!(4, 8, 16384, 40);
 
     // The remaining tests have RECURSION_CUTOFF = 1 in order to test the recursive position map.
 
     // Default parameters, but with RECURSION_CUTOFF = 1.
-    create_circuit_oram_correctness_tests!(4, 8, 1, 40, 1);
+    create_circuit_oram_correctness_tests!(4, 8, 1, 40);
 
     // Test small initial stash sizes and correct resizing of stash on overflow.
-    create_circuit_oram_correctness_tests!(4, 8, 1, 10, 1);
-    create_circuit_oram_correctness_tests!(4, 8, 1, 1, 1);
+    create_circuit_oram_correctness_tests!(4, 8, 1, 10);
+    create_circuit_oram_correctness_tests!(4, 8, 1, 1);
 
     // Test small and large bucket sizes.
-    create_circuit_oram_correctness_tests!(3, 8, 1, 40, 1);
-    create_circuit_oram_correctness_tests!(5, 8, 1, 40, 1);
+    create_circuit_oram_correctness_tests!(3, 8, 1, 40);
+    create_circuit_oram_correctness_tests!(5, 8, 1, 40);
 
     // Test small and large position map blocks.
-    create_circuit_oram_correctness_tests!(4, 2, 1, 40, 1);
-    create_circuit_oram_correctness_tests!(4, 64, 1, 40, 1);
+    create_circuit_oram_correctness_tests!(4, 2, 1, 40);
+    create_circuit_oram_correctness_tests!(4, 64, 1, 40);
 
     // "Running sanity checks" for the default parameters.
 
     // Check that the stash size stays reasonably small over the test runs.
-    create_circuit_oram_stash_size_tests!(4, 8, 16384, 40, 1);
+    create_circuit_oram_stash_size_tests!(4, 8, 16384, 40);
 
     // Sanity checks on the `DefaultOram` convenience wrapper.
     #[test]

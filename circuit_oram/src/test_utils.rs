@@ -116,19 +116,19 @@ where
 }
 
 macro_rules! create_circuit_oram_correctness_tests_all_parameters {
-    ($oram_type: ident, $prefix: literal, $block_capacity: expr, $block_size: expr, $bucket_size: expr, $position_block_size: expr, $overflow_size: expr, $recursion_cutoff: expr, $max_batch_size: expr, $iterations_to_test: expr) => {
+    ($oram_type: ident, $prefix: literal, $block_capacity: expr, $block_size: expr, $bucket_size: expr, $position_block_size: expr, $overflow_size: expr, $recursion_cutoff: expr, $iterations_to_test: expr) => {
         paste::paste! {
             #[test]
-            fn [<"linear_workload" $prefix $block_capacity _ $block_size _ $bucket_size _ $position_block_size _ $overflow_size _ $recursion_cutoff _ $max_batch_size>]() {
+            fn [<"linear_workload" $prefix $block_capacity _ $block_size _ $bucket_size _ $position_block_size _ $overflow_size _ $recursion_cutoff>]() {
                 let mut rng = StdRng::seed_from_u64(1);
-                let mut oram = $oram_type::<BlockValue<$block_size>, $bucket_size, $position_block_size>::new_with_parameters($block_capacity, &mut rng, $overflow_size, $recursion_cutoff, $max_batch_size).unwrap();
+                let mut oram = $oram_type::<BlockValue<$block_size>, $bucket_size, $position_block_size>::new_with_parameters($block_capacity, &mut rng, $overflow_size, $recursion_cutoff).unwrap();
                 linear_workload(&mut oram, $iterations_to_test);
             }
 
             #[test]
-            fn [<"random_workload" $prefix $block_capacity _ $block_size _ $bucket_size _ $position_block_size _ $overflow_size _ $recursion_cutoff _ $max_batch_size>]() {
+            fn [<"random_workload" $prefix $block_capacity _ $block_size _ $bucket_size _ $position_block_size _ $overflow_size _ $recursion_cutoff>]() {
                 let mut rng = StdRng::seed_from_u64(1);
-                let mut oram = $oram_type::<BlockValue<$block_size>, $bucket_size, $position_block_size>::new_with_parameters($block_capacity, &mut rng, $overflow_size, $recursion_cutoff, $max_batch_size).unwrap();
+                let mut oram = $oram_type::<BlockValue<$block_size>, $bucket_size, $position_block_size>::new_with_parameters($block_capacity, &mut rng, $overflow_size, $recursion_cutoff).unwrap();
                 random_workload(&mut oram, $iterations_to_test);
             }
         }
@@ -136,7 +136,7 @@ macro_rules! create_circuit_oram_correctness_tests_all_parameters {
 }
 
 macro_rules! create_circuit_oram_correctness_tests_helper {
-    ($oram_type: ident, $prefix: literal, $bucket_size: expr, $position_block_size: expr, $recursion_cutoff: expr, $overflow_size: expr, $max_batch_size: expr) => {
+    ($oram_type: ident, $prefix: literal, $bucket_size: expr, $position_block_size: expr, $recursion_cutoff: expr, $overflow_size: expr) => {
         create_circuit_oram_correctness_tests_all_parameters!(
             $oram_type,
             $prefix,
@@ -146,7 +146,6 @@ macro_rules! create_circuit_oram_correctness_tests_helper {
             $position_block_size,
             $overflow_size,
             $recursion_cutoff,
-            $max_batch_size,
             100
         );
         create_circuit_oram_correctness_tests_all_parameters!(
@@ -158,7 +157,6 @@ macro_rules! create_circuit_oram_correctness_tests_helper {
             $position_block_size,
             $overflow_size,
             $recursion_cutoff,
-            $max_batch_size,
             100
         );
         // Block size 4 blocks, block size 2 bytes, testing with 100 operations
@@ -171,7 +169,6 @@ macro_rules! create_circuit_oram_correctness_tests_helper {
             $position_block_size,
             $overflow_size,
             $recursion_cutoff,
-            $max_batch_size,
             100
         );
         create_circuit_oram_correctness_tests_all_parameters!(
@@ -183,7 +180,6 @@ macro_rules! create_circuit_oram_correctness_tests_helper {
             $position_block_size,
             $overflow_size,
             $recursion_cutoff,
-            $max_batch_size,
             100
         );
         create_circuit_oram_correctness_tests_all_parameters!(
@@ -195,36 +191,33 @@ macro_rules! create_circuit_oram_correctness_tests_helper {
             $position_block_size,
             $overflow_size,
             $recursion_cutoff,
-            $max_batch_size,
             1000
         );
     };
 }
 
 macro_rules! create_circuit_oram_correctness_tests {
-    ($bucket_size: expr, $position_block_size: expr, $recursion_cutoff: expr, $overflow_size: expr, $max_batch_size: expr) => {
+    ($bucket_size: expr, $position_block_size: expr, $recursion_cutoff: expr, $overflow_size: expr) => {
         create_circuit_oram_correctness_tests_helper!(
             CircuitOram,
             "",
             $bucket_size,
             $position_block_size,
             $recursion_cutoff,
-            $overflow_size,
-            $max_batch_size
+            $overflow_size
         );
     };
 }
 
 macro_rules! create_circuit_oram_stash_size_tests {
-    ($bucket_size: expr, $position_block_size: expr, $recursion_cutoff: expr, $overflow_size: expr, $max_batch_size: expr) => {
+    ($bucket_size: expr, $position_block_size: expr, $recursion_cutoff: expr, $overflow_size: expr) => {
         create_circuit_oram_correctness_tests_helper!(
             StashSizeMonitor,
             "_stash_size_",
             $bucket_size,
             $position_block_size,
             $recursion_cutoff,
-            $overflow_size,
-            $max_batch_size
+            $overflow_size
         );
     };
 }
@@ -240,7 +233,6 @@ impl<V: OramBlock, const Z: BucketSize, const AB: BlockSize> StashSizeMonitor<V,
         rng: &mut R,
         overflow_size: StashSize,
         recursion_cutoff: RecursionCutoff,
-        max_batch_size: u64,
     ) -> Result<Self, OramError> {
         Ok(Self {
             oram: CircuitOram::new_with_parameters(
@@ -248,7 +240,6 @@ impl<V: OramBlock, const Z: BucketSize, const AB: BlockSize> StashSizeMonitor<V,
                 rng,
                 overflow_size,
                 recursion_cutoff,
-                max_batch_size,
             )
             .unwrap(),
         })
@@ -269,17 +260,6 @@ impl<V: OramBlock, const Z: BucketSize, const AB: BlockSize> Oram for StashSizeM
         rng: &mut R,
     ) -> Result<V, OramError> {
         let result = self.oram.access(index, callback, rng);
-        let stash_size = self.oram.stash_occupancy();
-        assert!(stash_size < 10);
-        result
-    }
-
-    fn batch_access<R: CryptoRng, F: Fn(&Self::V) -> Self::V>(
-        &mut self,
-        callbacks: &[(Address, F)],
-        rng: &mut R,
-    ) -> Result<Vec<Self::V>, OramError> {
-        let result = self.oram.batch_access(callbacks, rng);
         let stash_size = self.oram.stash_occupancy();
         assert!(stash_size < 10);
         result

@@ -5,13 +5,13 @@
 // License, Version 2.0 found in the LICENSE-APACHE file in the root directory
 // of this source tree. You may select, at your option, one of the above-listed licenses.
 
-//! A trait representing a Path ORAM stash.
+//! A trait representing a Circuit ORAM stash.
 
 use std::{cmp, vec};
 
 use crate::{
     Address, BucketSize, OramBlock, OramError, StashSize,
-    bucket::{Bucket, PathOramBlock},
+    bucket::{Bucket, CircuitOramBlock},
     utils::{CompleteBinaryTreeIndex, TreeIndex, bitonic_sort_by_keys},
 };
 
@@ -23,7 +23,7 @@ use subtle::{Choice, ConditionallySelectable, ConstantTimeEq, ConstantTimeLess};
 const STASH_GROWTH_INCREMENT: usize = 10;
 
 #[derive(Debug)]
-/// A fixed-size, obliviously accessed Path ORAM stash data structure implemented using oblivious sorting.
+/// A fixed-size, obliviously accessed Circuit ORAM stash data structure implemented using oblivious sorting.
 pub struct ObliviousStash<V: OramBlock> {
     pub entries: Vec<StashEntry<V>>,
     pub path_size: StashSize,
@@ -34,7 +34,7 @@ pub struct ObliviousStash<V: OramBlock> {
 
 #[derive(Debug, Clone, Copy)]
 pub struct StashEntry<V: OramBlock> {
-    pub block: PathOramBlock<V>,
+    pub block: CircuitOramBlock<V>,
     #[cfg(feature = "exact_locations_in_position_map")]
     pub exact_bucket: TreeIndex,
     #[cfg(feature = "exact_locations_in_position_map")]
@@ -47,7 +47,7 @@ impl<V: OramBlock> StashEntry<V> {
 
     pub fn dummy() -> Self {
         Self {
-            block: PathOramBlock::<V>::dummy(),
+            block: CircuitOramBlock::<V>::dummy(),
             #[cfg(feature = "exact_locations_in_position_map")]
             exact_bucket: BlockMetadata::NOT_IN_TREE,
             #[cfg(feature = "exact_locations_in_position_map")]
@@ -58,7 +58,7 @@ impl<V: OramBlock> StashEntry<V> {
 
 impl<V: OramBlock> ConditionallySelectable for StashEntry<V> {
     fn conditional_select(a: &Self, b: &Self, choice: Choice) -> Self {
-        let block = PathOramBlock::conditional_select(&a.block, &b.block, choice);
+        let block = CircuitOramBlock::conditional_select(&a.block, &b.block, choice);
         #[cfg(feature = "exact_locations_in_position_map")]
         let exact_bucket = u64::conditional_select(&a.exact_bucket, &b.exact_bucket, choice);
         #[cfg(feature = "exact_locations_in_position_map")]
@@ -416,7 +416,7 @@ impl<V: OramBlock> ObliviousStash<V> {
         let is_real_access = address.ct_lt(&self.oram_block_capacity);
 
         reserved_entry.block.conditional_assign(
-            &PathOramBlock {
+            &CircuitOramBlock {
                 value: value_callback(&result),
                 address,
                 position: new_position,
@@ -452,7 +452,7 @@ impl<V: OramBlock> ObliviousStash<V> {
             let is_real_access = address.ct_lt(&self.oram_block_capacity);
 
             reserved_entry.block.conditional_assign(
-                &PathOramBlock {
+                &CircuitOramBlock {
                     value: value_callback(&result),
                     address: *address,
                     position: *new_position,

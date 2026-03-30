@@ -5,7 +5,7 @@
 // License, Version 2.0 found in the LICENSE-APACHE file in the root directory
 // of this source tree. You may select, at your option, one of the above-listed licenses.
 
-//! An implementation of Path ORAM.
+//! An implementation of Circuit ORAM.
 
 #[cfg(not(feature = "full_reconstruction"))]
 use std::mem;
@@ -42,34 +42,34 @@ use crate::{
 };
 
 #[cfg(feature = "direct_accesses_in_off_mode")]
-use crate::bucket::PathOramBlock;
+use crate::bucket::CircuitOramBlock;
 
 #[cfg(feature = "exact_locations_in_position_map")]
 use crate::{stash::StashEntry, utils::TreeIndex};
 
 /// The default cutoff size in blocks
-/// below which `PathOram` uses a linear position map instead of a recursive one.
+/// below which `CircuitOram` uses a linear position map instead of a recursive one.
 pub const DEFAULT_RECURSION_CUTOFF: RecursionCutoff = 1 << 6;
 
-/// The parameter "Z" from the Path ORAM literature that sets the number of blocks per bucket; typical values are 3 or 4.
+/// The parameter "Z" from the Circuit ORAM literature that sets the number of blocks per bucket; typical values are 3 or 4.
 /// Here we adopt the more conservative setting of 4.
 pub const DEFAULT_BLOCKS_PER_BUCKET: BucketSize = 4;
 
 /// The default number of positions stored per position block.
 pub const DEFAULT_POSITIONS_PER_BLOCK: BlockSize = 8;
 
-/// The default number of overflow blocks that the Path ORAM stash (and recursive stashes) can store.
+/// The default number of overflow blocks that the Circuit ORAM stash (and recursive stashes) can store.
 pub const DEFAULT_STASH_OVERFLOW_SIZE: StashSize = 40;
 
 /// The cutoff size in blocks below which `DefaultOram` is simply a linear time ORAM.
 pub const LINEAR_TIME_ORAM_CUTOFF: RecursionCutoff = 1 << 6;
 
-/// A doubly oblivious Path ORAM.
+/// A doubly oblivious Circuit ORAM.
 ///
 /// ## Parameters
 ///
 /// - Block type `V`: the type of elements stored by the ORAM.
-/// - Bucket size `Z`: the number of blocks per Path ORAM bucket.
+/// - Bucket size `Z`: the number of blocks per Circuit ORAM bucket.
 ///     Must be at least 2. Typical values are 3, 4, or 5.
 ///     Along with the overflow size, this value affects the probability
 ///     of stash overflow (see below) and should be set with care.
@@ -78,7 +78,7 @@ pub const LINEAR_TIME_ORAM_CUTOFF: RecursionCutoff = 1 << 6;
 ///     Must be a power of two and must be at least 2 (otherwise the recursion will not terminate).
 ///     Otherwise, can be freely tuned for performance.
 ///     Larger `AB` means fewer levels of recursion but higher costs for accessing each level.
-/// - Recursion threshold: the maximum number of position blocks that will be stored in a recursive Path ORAM.
+/// - Recursion threshold: the maximum number of position blocks that will be stored in a recursive Circuit ORAM.
 ///     Below this value, the position map will be a linear scanning ORAM.
 ///     Can be freely tuned for performance.
 ///     A larger values means fewer levels of recursion, but a more expensive base position map.
@@ -96,20 +96,20 @@ pub const LINEAR_TIME_ORAM_CUTOFF: RecursionCutoff = 1 << 6;
 /// how an attacker might use a stash overflow to infer properties of the access pattern.
 ///
 /// That said, it is best to choose parameters so that the stash does not ever overflow.
-/// With Z = 4, experiments from the [original Path ORAM paper](https://eprint.iacr.org/2013/280.pdf)
+/// With Z = 4, experiments from the [original Circuit ORAM paper](https://eprint.iacr.org/2013/280.pdf)
 /// indicate that the probability of overflow is independent of the number N of blocks stored,
 /// and that setting SO = 40 is enough to reduce this probability to below 2^{-50} (Figure 3).
 /// The authors conservatively estimate that setting SO = 89 suffices for 2^{-80} overflow probability.
 /// The choice Z = 3 is also popular, although the probability of overflow is less well understood.
 #[derive(Debug)]
-pub struct PathOram<V: OramBlock, const Z: BucketSize, const AB: BlockSize> {
+pub struct CircuitOram<V: OramBlock, const Z: BucketSize, const AB: BlockSize> {
     /// The underlying untrusted memory that the ORAM is obliviously accessing on behalf of its client.
     physical_memory: Vec<Bucket<V, Z>>,
-    /// The Path ORAM stash.
+    /// The Circuit ORAM stash.
     stash: ObliviousStash<V>,
-    /// The Path ORAM position map.
+    /// The Circuit ORAM position map.
     position_map: PositionMap<AB, Z>,
-    /// The height of the Path ORAM tree data structure.
+    /// The height of the Circuit ORAM tree data structure.
     height: TreeHeight,
     /// Current mode.
     mode: OramMode,
@@ -144,7 +144,7 @@ pub struct DefaultOram<V: OramBlock>(DefaultOramBackend<V>);
 
 #[derive(Debug)]
 enum DefaultOramBackend<V: OramBlock> {
-    Path(PathOram<V, DEFAULT_BLOCKS_PER_BUCKET, DEFAULT_POSITIONS_PER_BLOCK>),
+    Circuit(CircuitOram<V, DEFAULT_BLOCKS_PER_BUCKET, DEFAULT_POSITIONS_PER_BLOCK>),
     Linear(LinearTimeOram<V>),
 }
 
@@ -153,7 +153,7 @@ impl<V: OramBlock> Oram for DefaultOram<V> {
 
     fn block_capacity(&self) -> Result<Address, OramError> {
         match &self.0 {
-            DefaultOramBackend::Path(p) => p.block_capacity(),
+            DefaultOramBackend::Circuit(p) => p.block_capacity(),
             DefaultOramBackend::Linear(l) => l.block_capacity(),
         }
     }
@@ -165,7 +165,7 @@ impl<V: OramBlock> Oram for DefaultOram<V> {
         rng: &mut R,
     ) -> Result<Self::V, OramError> {
         match &mut self.0 {
-            DefaultOramBackend::Path(p) => p.access(index, callback, rng),
+            DefaultOramBackend::Circuit(p) => p.access(index, callback, rng),
             DefaultOramBackend::Linear(l) => l.access(index, callback, rng),
         }
     }
@@ -176,35 +176,35 @@ impl<V: OramBlock> Oram for DefaultOram<V> {
         rng: &mut R,
     ) -> Result<Vec<Self::V>, OramError> {
         match &mut self.0 {
-            DefaultOramBackend::Path(p) => p.batch_access(callbacks, rng),
+            DefaultOramBackend::Circuit(p) => p.batch_access(callbacks, rng),
             DefaultOramBackend::Linear(l) => l.batch_access(callbacks, rng),
         }
     }
 
     fn turn_on<R: CryptoRng>(&mut self, rng: &mut R) -> Result<(), OramError> {
         match &mut self.0 {
-            DefaultOramBackend::Path(p) => p.turn_on(rng),
+            DefaultOramBackend::Circuit(p) => p.turn_on(rng),
             DefaultOramBackend::Linear(l) => l.turn_on(rng),
         }
     }
 
     fn turn_off(&mut self) -> Result<(), OramError> {
         match &mut self.0 {
-            DefaultOramBackend::Path(p) => p.turn_off(),
+            DefaultOramBackend::Circuit(p) => p.turn_off(),
             DefaultOramBackend::Linear(l) => l.turn_off(),
         }
     }
 
     fn turn_on_without_evicting(&mut self) -> Result<(), OramError> {
         match &mut self.0 {
-            DefaultOramBackend::Path(p) => p.turn_on_without_evicting(),
+            DefaultOramBackend::Circuit(p) => p.turn_on_without_evicting(),
             DefaultOramBackend::Linear(l) => l.turn_on_without_evicting(),
         }
     }
 
     fn mode(&self) -> OramMode {
         match &self.0 {
-            DefaultOramBackend::Path(p) => p.mode(),
+            DefaultOramBackend::Circuit(p) => p.mode(),
             DefaultOramBackend::Linear(l) => l.mode(),
         }
     }
@@ -233,7 +233,7 @@ impl<V: OramBlock> DefaultOram<V> {
                     1
                 }
             };
-            Ok(Self(DefaultOramBackend::Path(PathOram::<
+            Ok(Self(DefaultOramBackend::Circuit(CircuitOram::<
                 V,
                 DEFAULT_BLOCKS_PER_BUCKET,
                 DEFAULT_POSITIONS_PER_BLOCK,
@@ -248,10 +248,10 @@ impl<V: OramBlock> DefaultOram<V> {
     }
 }
 
-impl<V: OramBlock, const Z: BucketSize, const AB: BlockSize> PathOram<V, Z, AB> {
-    /// Returns a new `PathOram` mapping addresses `0 <= address < block_capacity` to default `V` values,
+impl<V: OramBlock, const Z: BucketSize, const AB: BlockSize> CircuitOram<V, Z, AB> {
+    /// Returns a new `CircuitOram` mapping addresses `0 <= address < block_capacity` to default `V` values,
     /// with a stash overflow size of `overflow_size` blocks, and a recursion cutoff of `recursion_cutoff`.
-    /// (See [`PathOram`]) for a description of these parameters).
+    /// (See [`CircuitOram`]) for a description of these parameters).
     ///
     /// # Errors
     ///
@@ -269,7 +269,7 @@ impl<V: OramBlock, const Z: BucketSize, const AB: BlockSize> PathOram<V, Z, AB> 
         recursion_cutoff: RecursionCutoff,
         max_batch_size: u64,
     ) -> Result<Self, OramError> {
-        log::info!("PathOram::new(capacity = {})", block_capacity,);
+        log::info!("CircuitOram::new(capacity = {})", block_capacity,);
 
         if !block_capacity.is_power_of_two() | (block_capacity <= 1) {
             return Err(OramError::InvalidConfigurationError {
@@ -401,7 +401,7 @@ impl<V: OramBlock, const Z: BucketSize, const AB: BlockSize> PathOram<V, Z, AB> 
     }
 }
 
-impl<V: OramBlock, const Z: BucketSize, const AB: BlockSize> Oram for PathOram<V, Z, AB> {
+impl<V: OramBlock, const Z: BucketSize, const AB: BlockSize> Oram for CircuitOram<V, Z, AB> {
     type V = V;
 
     // REVIEW NOTE: This function has not been modified.
@@ -492,7 +492,7 @@ impl<V: OramBlock, const Z: BucketSize, const AB: BlockSize> Oram for PathOram<V
                             let entry_is_dummy = entry
                                 .block
                                 .address
-                                .ct_eq(&PathOramBlock::<V>::DUMMY_ADDRESS);
+                                .ct_eq(&CircuitOramBlock::<V>::DUMMY_ADDRESS);
                             let entry_address = Address::conditional_select(
                                 &entry.block.address,
                                 &self.block_capacity()?,
@@ -611,7 +611,7 @@ impl<V: OramBlock, const Z: BucketSize, const AB: BlockSize> Oram for PathOram<V
                                 let bucket = &mut self.physical_memory[bucket];
                                 &mut bucket.blocks[offset]
                             }
-                            BlockLocation::Dummy => &mut PathOramBlock::dummy(),
+                            BlockLocation::Dummy => &mut CircuitOramBlock::dummy(),
                         };
 
                         let result = block.value;
@@ -940,29 +940,29 @@ mod tests {
     use rand::{SeedableRng, rngs::StdRng};
 
     // Test default parameters. For the small capacity used in the tests, this means a linear position map.
-    create_path_oram_correctness_tests!(4, 8, 16384, 40, 1);
+    create_circuit_oram_correctness_tests!(4, 8, 16384, 40, 1);
 
     // The remaining tests have RECURSION_CUTOFF = 1 in order to test the recursive position map.
 
     // Default parameters, but with RECURSION_CUTOFF = 1.
-    create_path_oram_correctness_tests!(4, 8, 1, 40, 1);
+    create_circuit_oram_correctness_tests!(4, 8, 1, 40, 1);
 
     // Test small initial stash sizes and correct resizing of stash on overflow.
-    create_path_oram_correctness_tests!(4, 8, 1, 10, 1);
-    create_path_oram_correctness_tests!(4, 8, 1, 1, 1);
+    create_circuit_oram_correctness_tests!(4, 8, 1, 10, 1);
+    create_circuit_oram_correctness_tests!(4, 8, 1, 1, 1);
 
     // Test small and large bucket sizes.
-    create_path_oram_correctness_tests!(3, 8, 1, 40, 1);
-    create_path_oram_correctness_tests!(5, 8, 1, 40, 1);
+    create_circuit_oram_correctness_tests!(3, 8, 1, 40, 1);
+    create_circuit_oram_correctness_tests!(5, 8, 1, 40, 1);
 
     // Test small and large position map blocks.
-    create_path_oram_correctness_tests!(4, 2, 1, 40, 1);
-    create_path_oram_correctness_tests!(4, 64, 1, 40, 1);
+    create_circuit_oram_correctness_tests!(4, 2, 1, 40, 1);
+    create_circuit_oram_correctness_tests!(4, 64, 1, 40, 1);
 
     // "Running sanity checks" for the default parameters.
 
     // Check that the stash size stays reasonably small over the test runs.
-    create_path_oram_stash_size_tests!(4, 8, 16384, 40, 1);
+    create_circuit_oram_stash_size_tests!(4, 8, 16384, 40, 1);
 
     // Sanity checks on the `DefaultOram` convenience wrapper.
     #[test]
@@ -979,7 +979,7 @@ mod tests {
     fn default_oram_path_correctness() {
         let mut rng = StdRng::seed_from_u64(0);
         let mut oram = DefaultOram::<BlockValue<1>>::new(2048, &mut rng).unwrap();
-        assert!(matches!(oram.0, DefaultOramBackend::Path(_)));
+        assert!(matches!(oram.0, DefaultOramBackend::Circuit(_)));
         random_workload(&mut oram, 1000);
     }
 }

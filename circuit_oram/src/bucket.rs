@@ -5,7 +5,7 @@
 // License, Version 2.0 found in the LICENSE-APACHE file in the root directory
 // of this source tree. You may select, at your option, one of the above-listed licenses.
 
-//! Block and bucket structures for Path ORAM.
+//! Block and bucket structures for Circuit ORAM.
 
 use crate::{BlockSize, OramBlock};
 use subtle::{Choice, ConditionallySelectable};
@@ -62,14 +62,14 @@ impl<const B: BlockSize> Distribution<BlockValue<B>> for StandardUniform {
 }
 
 #[derive(Clone, Copy, Default, PartialEq)]
-/// A Path ORAM block combines an `OramBlock` V with two metadata fields; its ORAM `address` and its `position` in the tree.
-pub(crate) struct PathOramBlock<V> {
+/// A Circuit ORAM block combines an `OramBlock` V with two metadata fields; its ORAM `address` and its `position` in the tree.
+pub(crate) struct CircuitOramBlock<V> {
     pub value: V,
     pub address: Address,
     pub position: TreeIndex,
 }
 
-impl<V: OramBlock> PathOramBlock<V> {
+impl<V: OramBlock> CircuitOramBlock<V> {
     pub const DUMMY_ADDRESS: Address = Address::MAX;
     const DUMMY_POSITION: TreeIndex = 0;
 
@@ -91,12 +91,12 @@ impl<V: OramBlock> PathOramBlock<V> {
     }
 }
 
-impl<V: OramBlock> std::fmt::Debug for PathOramBlock<V> {
+impl<V: OramBlock> std::fmt::Debug for CircuitOramBlock<V> {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         if self.ct_is_dummy().into() {
-            write!(f, "PathOramBlock::Dummy")
+            write!(f, "CircuitOramBlock::Dummy")
         } else {
-            f.debug_struct("PathOramBlock")
+            f.debug_struct("CircuitOramBlock")
                 .field("value", &self.value)
                 .field("address", &self.address)
                 .field("position", &self.position)
@@ -105,14 +105,14 @@ impl<V: OramBlock> std::fmt::Debug for PathOramBlock<V> {
     }
 }
 
-impl<V: OramBlock> OramBlock for PathOramBlock<V> {}
+impl<V: OramBlock> OramBlock for CircuitOramBlock<V> {}
 
-impl<V: ConditionallySelectable> ConditionallySelectable for PathOramBlock<V> {
+impl<V: ConditionallySelectable> ConditionallySelectable for CircuitOramBlock<V> {
     fn conditional_select(a: &Self, b: &Self, choice: Choice) -> Self {
         let value = V::conditional_select(&a.value, &b.value, choice);
         let address = Address::conditional_select(&a.address, &b.address, choice);
         let position = TreeIndex::conditional_select(&a.position, &b.position, choice);
-        PathOramBlock::<V> {
+        CircuitOramBlock::<V> {
             value,
             address,
             position,
@@ -124,7 +124,7 @@ impl<V: ConditionallySelectable> ConditionallySelectable for PathOramBlock<V> {
 #[derive(Clone, Copy, PartialEq, Debug)]
 /// An `OramBlock` storing addresses, intended for use in a position map ORAM.
 pub struct PositionBlock<const B: BlockSize> {
-    /// The Path ORAM positions stored in this block.
+    /// The Circuit ORAM positions stored in this block.
     pub data: [BlockMetadata; B],
 }
 
@@ -210,10 +210,10 @@ impl<const B: BlockSize> OramBlock for PositionBlock<B> {}
 impl OramBlock for BlockMetadata {}
 
 #[derive(Clone, Copy, PartialEq)]
-/// A Path ORAM bucket.
+/// A Circuit ORAM bucket.
 pub struct Bucket<V: OramBlock, const Z: BucketSize> {
-    /// The Path ORAM blocks stored by this bucket.
-    pub(crate) blocks: [PathOramBlock<V>; Z],
+    /// The Circuit ORAM blocks stored by this bucket.
+    pub(crate) blocks: [CircuitOramBlock<V>; Z],
 }
 
 impl<V: OramBlock, const Z: BucketSize> std::fmt::Debug for Bucket<V, Z> {
@@ -239,7 +239,7 @@ impl<V: OramBlock, const Z: BucketSize> std::fmt::Debug for Bucket<V, Z> {
 impl<V: OramBlock, const Z: BucketSize> Default for Bucket<V, Z> {
     fn default() -> Self {
         Self {
-            blocks: [PathOramBlock::<V>::dummy(); Z],
+            blocks: [CircuitOramBlock::<V>::dummy(); Z],
         }
     }
 }
@@ -249,7 +249,7 @@ impl<V: OramBlock, const Z: BucketSize> ConditionallySelectable for Bucket<V, Z>
         let mut result = Self::default();
         for i in 0..result.blocks.len() {
             result.blocks[i] =
-                PathOramBlock::<V>::conditional_select(&a.blocks[i], &b.blocks[i], choice)
+                CircuitOramBlock::<V>::conditional_select(&a.blocks[i], &b.blocks[i], choice)
         }
         result
     }

@@ -18,10 +18,8 @@
 //!
 //! # Design
 //!
-//! This crate implements the Path ORAM protocol, with oblivious
+//! This crate implements the Circuit ORAM protocol, with oblivious
 //! client data structures based on the [Oblix paper](https://people.eecs.berkeley.edu/~raluca/oblix.pdf).
-//! See the [Path ORAM retrospective paper](http://elaineshi.com/docs/pathoram-retro.pdf)
-//! for a high-level introduction to ORAM and Path ORAM, and for more detailed references.
 //!
 //! # Example
 //!
@@ -59,13 +57,13 @@
 //!
 //! The `DefaultOram` used in the above example should have good performance in most use cases.
 //! But the underlying algorithms have several tunable parameters that impact performance.
-//! The following example instantiates the same ORAM struct as above, but using the `PathOram`
+//! The following example instantiates the same ORAM struct as above, but using the `CircuitOram`
 //! interface which exposes these parameters.
 //!
 //! ```
 //! use oram::{Address, BlockSize, BlockValue, BucketSize,
-//!             Oram, PathOram, StashSize, RecursionCutoff};
-//! use oram::path_oram::{DEFAULT_BLOCKS_PER_BUCKET, DEFAULT_RECURSION_CUTOFF,
+//!             Oram, CircuitOram, StashSize, RecursionCutoff};
+//! use oram::circuit_oram::{DEFAULT_BLOCKS_PER_BUCKET, DEFAULT_RECURSION_CUTOFF,
 //!             DEFAULT_POSITIONS_PER_BLOCK, DEFAULT_STASH_OVERFLOW_SIZE};
 //! # use oram::OramError;
 //! # let mut rng = rand::rngs::OsRng;
@@ -77,7 +75,7 @@
 //! const POSITIONS_PER_BLOCK: BlockSize = DEFAULT_POSITIONS_PER_BLOCK;
 //! const INITIAL_STASH_OVERFLOW_SIZE: StashSize = DEFAULT_STASH_OVERFLOW_SIZE;
 //!
-//! let mut oram = PathOram::<
+//! let mut oram = CircuitOram::<
 //!     BlockValue<BLOCK_SIZE>,
 //!     BUCKET_SIZE,
 //!     POSITIONS_PER_BLOCK,
@@ -85,7 +83,7 @@
 //! # Ok::<(), OramError>(())
 //! ```
 //!
-//! See [`PathOram`] for an explanation of these parameters and their possible settings.
+//! See [`CircuitOram`] for an explanation of these parameters and their possible settings.
 
 #![warn(clippy::doc_markdown, missing_docs, rustdoc::all)]
 #![allow(clippy::doc_overindented_list_items)]
@@ -110,7 +108,7 @@ compile_error!("Interactions of `full_reconstruction` with other features are no
 
 pub(crate) mod bucket;
 pub mod linear_time_oram;
-pub mod path_oram;
+pub mod circuit_oram;
 pub(crate) mod position_map;
 pub(crate) mod stash;
 #[cfg(test)]
@@ -118,8 +116,8 @@ mod test_utils;
 pub(crate) mod utils;
 
 pub use crate::bucket::BlockValue;
-pub use crate::path_oram::DefaultOram;
-pub use crate::path_oram::PathOram;
+pub use crate::circuit_oram::DefaultOram;
+pub use crate::circuit_oram::CircuitOram;
 
 /// The numeric type used to specify the size of an ORAM block in bytes.
 pub type BlockSize = usize;
@@ -128,9 +126,9 @@ pub type Address = u64;
 /// The numeric type used to specify the size of an ORAM bucket in blocks.
 pub type BucketSize = usize;
 /// The numeric type used to specify the cutoff size
-/// below which `PathOram` uses a linear position map instead of a recursive one.
+/// below which `CircuitOram` uses a linear position map instead of a recursive one.
 pub type RecursionCutoff = u64;
-/// Numeric type used to represent the size of a Path ORAM stash in blocks.
+/// Numeric type used to represent the size of a Circuit ORAM stash in blocks.
 pub type StashSize = u64;
 
 /// A "trait alias" for ORAM blocks: the values read and written by ORAMs.

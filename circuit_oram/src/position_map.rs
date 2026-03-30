@@ -5,9 +5,9 @@
 // License, Version 2.0 found in the LICENSE-APACHE file in the root directory
 // of this source tree. You may select, at your option, one of the above-listed licenses.
 
-//! A recursive Path ORAM position map data structure.
+//! A recursive Circuit ORAM position map data structure.
 
-use super::path_oram::PathOram;
+use super::circuit_oram::CircuitOram;
 use crate::bucket::{BlockMetadata, PositionBlock};
 use crate::{Address, BlockSize, BucketSize, Oram, linear_time_oram::LinearTimeOram};
 use crate::{OramError, RecursionCutoff};
@@ -15,13 +15,13 @@ use crate::{OramMode, StashSize};
 use rand::CryptoRng;
 use subtle::{ConditionallySelectable, ConstantTimeEq};
 
-/// A recursive Path ORAM position map data structure. `AB` is the number of addresses stored in each ORAM block.
+/// A recursive Circuit ORAM position map data structure. `AB` is the number of addresses stored in each ORAM block.
 #[derive(Debug)]
 pub enum PositionMap<const AB: BlockSize, const Z: BucketSize> {
     /// A simple, linear-time `AddressOram`.
     Base(LinearTimeOram<PositionBlock<AB>>),
     /// A recursive `AddressOram` whose position map is also an `AddressOram`.
-    Recursive(Box<PathOram<PositionBlock<AB>, Z, AB>>),
+    Recursive(Box<CircuitOram<PositionBlock<AB>, Z, AB>>),
 }
 impl<const AB: BlockSize, const Z: BucketSize> PositionMap<AB, Z> {
     fn address_of_block(address: Address) -> Address {
@@ -105,7 +105,7 @@ impl<const AB: BlockSize, const Z: BucketSize> PositionMap<AB, Z> {
                 }
             };
 
-            Ok(Self::Recursive(Box::new(PathOram::new_with_parameters(
+            Ok(Self::Recursive(Box::new(CircuitOram::new_with_parameters(
                 block_capacity,
                 rng,
                 overflow_size,

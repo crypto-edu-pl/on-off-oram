@@ -11,7 +11,7 @@
 use std::fmt::Debug;
 use std::sync::Once;
 static INIT: Once = Once::new();
-use crate::path_oram::PathOram;
+use crate::circuit_oram::CircuitOram;
 use crate::{
     Address, BlockSize, BucketSize, Oram, OramBlock, OramError, OramMode, RecursionCutoff,
     StashSize,
@@ -115,7 +115,7 @@ where
     }
 }
 
-macro_rules! create_path_oram_correctness_tests_all_parameters {
+macro_rules! create_circuit_oram_correctness_tests_all_parameters {
     ($oram_type: ident, $prefix: literal, $block_capacity: expr, $block_size: expr, $bucket_size: expr, $position_block_size: expr, $overflow_size: expr, $recursion_cutoff: expr, $max_batch_size: expr, $iterations_to_test: expr) => {
         paste::paste! {
             #[test]
@@ -135,9 +135,9 @@ macro_rules! create_path_oram_correctness_tests_all_parameters {
     };
 }
 
-macro_rules! create_path_oram_correctness_tests_helper {
+macro_rules! create_circuit_oram_correctness_tests_helper {
     ($oram_type: ident, $prefix: literal, $bucket_size: expr, $position_block_size: expr, $recursion_cutoff: expr, $overflow_size: expr, $max_batch_size: expr) => {
-        create_path_oram_correctness_tests_all_parameters!(
+        create_circuit_oram_correctness_tests_all_parameters!(
             $oram_type,
             $prefix,
             8,
@@ -149,7 +149,7 @@ macro_rules! create_path_oram_correctness_tests_helper {
             $max_batch_size,
             100
         );
-        create_path_oram_correctness_tests_all_parameters!(
+        create_circuit_oram_correctness_tests_all_parameters!(
             $oram_type,
             $prefix,
             4,
@@ -162,7 +162,7 @@ macro_rules! create_path_oram_correctness_tests_helper {
             100
         );
         // Block size 4 blocks, block size 2 bytes, testing with 100 operations
-        create_path_oram_correctness_tests_all_parameters!(
+        create_circuit_oram_correctness_tests_all_parameters!(
             $oram_type,
             $prefix,
             4,
@@ -174,7 +174,7 @@ macro_rules! create_path_oram_correctness_tests_helper {
             $max_batch_size,
             100
         );
-        create_path_oram_correctness_tests_all_parameters!(
+        create_circuit_oram_correctness_tests_all_parameters!(
             $oram_type,
             $prefix,
             16,
@@ -186,7 +186,7 @@ macro_rules! create_path_oram_correctness_tests_helper {
             $max_batch_size,
             100
         );
-        create_path_oram_correctness_tests_all_parameters!(
+        create_circuit_oram_correctness_tests_all_parameters!(
             $oram_type,
             $prefix,
             2,
@@ -201,10 +201,10 @@ macro_rules! create_path_oram_correctness_tests_helper {
     };
 }
 
-macro_rules! create_path_oram_correctness_tests {
+macro_rules! create_circuit_oram_correctness_tests {
     ($bucket_size: expr, $position_block_size: expr, $recursion_cutoff: expr, $overflow_size: expr, $max_batch_size: expr) => {
-        create_path_oram_correctness_tests_helper!(
-            PathOram,
+        create_circuit_oram_correctness_tests_helper!(
+            CircuitOram,
             "",
             $bucket_size,
             $position_block_size,
@@ -215,9 +215,9 @@ macro_rules! create_path_oram_correctness_tests {
     };
 }
 
-macro_rules! create_path_oram_stash_size_tests {
+macro_rules! create_circuit_oram_stash_size_tests {
     ($bucket_size: expr, $position_block_size: expr, $recursion_cutoff: expr, $overflow_size: expr, $max_batch_size: expr) => {
-        create_path_oram_correctness_tests_helper!(
+        create_circuit_oram_correctness_tests_helper!(
             StashSizeMonitor,
             "_stash_size_",
             $bucket_size,
@@ -231,7 +231,7 @@ macro_rules! create_path_oram_stash_size_tests {
 
 #[derive(Debug)]
 pub(crate) struct StashSizeMonitor<V: OramBlock, const Z: BucketSize, const AB: BlockSize> {
-    oram: PathOram<V, Z, AB>,
+    oram: CircuitOram<V, Z, AB>,
 }
 
 impl<V: OramBlock, const Z: BucketSize, const AB: BlockSize> StashSizeMonitor<V, Z, AB> {
@@ -243,7 +243,7 @@ impl<V: OramBlock, const Z: BucketSize, const AB: BlockSize> StashSizeMonitor<V,
         max_batch_size: u64,
     ) -> Result<Self, OramError> {
         Ok(Self {
-            oram: PathOram::new_with_parameters(
+            oram: CircuitOram::new_with_parameters(
                 block_capacity,
                 rng,
                 overflow_size,
@@ -302,7 +302,7 @@ impl<V: OramBlock, const Z: BucketSize, const AB: BlockSize> Oram for StashSizeM
     }
 }
 
-pub(crate) use create_path_oram_correctness_tests;
-pub(crate) use create_path_oram_correctness_tests_all_parameters;
-pub(crate) use create_path_oram_correctness_tests_helper;
-pub(crate) use create_path_oram_stash_size_tests;
+pub(crate) use create_circuit_oram_correctness_tests;
+pub(crate) use create_circuit_oram_correctness_tests_all_parameters;
+pub(crate) use create_circuit_oram_correctness_tests_helper;
+pub(crate) use create_circuit_oram_stash_size_tests;

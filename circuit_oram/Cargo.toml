@@ -1,0 +1,24 @@
+[package]
+name = "circuit_oram"
+version = "0.1.0"
+edition = "2024"
+
+[dependencies]
+subtle = "2"
+rand = "0.10"
+log = "0.4"
+thiserror = "2"
+static_assertions = "1"
+simplelog = "0.12"
+
+[dev-dependencies]
+paste = "1"
+
+[features]
+
+do_not_cache_block_values = []
+direct_accesses_in_off_mode = ["do_not_cache_block_values"]
+exact_locations_in_position_map = ["direct_accesses_in_off_mode"]
+exact_locations_in_position_map_and_batch_position_map = ["exact_locations_in_position_map"]
+batched_turning_on = []
+full_reconstruction = []

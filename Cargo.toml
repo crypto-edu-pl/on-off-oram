@@ -3,4 +3,5 @@ resolver = "3"
 members = [
     "evaluation",
     "path_oram",
+    "circuit_oram",
 ]

@@ -104,6 +104,19 @@ dependencies = [
 ]
 
 [[package]]
+name = "circuit_oram"
+version = "0.1.0"
+dependencies = [
+ "log",
+ "paste",
+ "rand",
+ "simplelog",
+ "static_assertions",
+ "subtle",
+ "thiserror",
+]
+
+[[package]]
 name = "clap"
 version = "4.6.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"

@@ -968,14 +968,12 @@ mod tests {
     #[test]
     fn default_oram_linear_correctness() {
         let mut rng = StdRng::seed_from_u64(0);
-        let mut oram = DefaultOram::<BlockValue<1>>::new(64, &mut rng).unwrap();
+        let mut oram = DefaultOram::<BlockValue<1>>::new(32, &mut rng).unwrap();
         assert!(matches!(oram.0, DefaultOramBackend::Linear(_)));
         random_workload(&mut oram, 1000);
     }
 
-    // This test is #[ignore]'d because it takes about 1 second to run.
     #[test]
-    #[ignore]
     fn default_oram_path_correctness() {
         let mut rng = StdRng::seed_from_u64(0);
         let mut oram = DefaultOram::<BlockValue<1>>::new(2048, &mut rng).unwrap();

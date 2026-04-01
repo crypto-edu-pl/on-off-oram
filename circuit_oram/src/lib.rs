@@ -26,14 +26,14 @@
 //! The below example reads a database from memory into an ORAM, thus permitting secret-dependent accesses.
 //!
 //! ```
-//! use oram::{Address, BlockSize, BlockValue, Oram, DefaultOram};
-//! # use oram::OramError;
+//! use circuit_oram::{Address, BlockSize, BlockValue, Oram, DefaultOram};
+//! # use circuit_oram::OramError;
 //!
 //! const BLOCK_SIZE: BlockSize = 64;
 //! const DB_SIZE: Address = 64;
 //! # const DATABASE: [[u8; BLOCK_SIZE as usize]; DB_SIZE as usize] =
 //! # [[0; BLOCK_SIZE as usize]; DB_SIZE as usize];
-//! let mut rng = rand::rngs::OsRng;
+//! let mut rng = rand::rng();
 //!
 //! // Initialize an ORAM to store 64 blocks of 64 bytes each.
 //! let mut oram = DefaultOram::<BlockValue<BLOCK_SIZE>>::new(DB_SIZE, &mut rng)?;
@@ -61,12 +61,12 @@
 //! interface which exposes these parameters.
 //!
 //! ```
-//! use oram::{Address, BlockSize, BlockValue, BucketSize,
+//! use circuit_oram::{Address, BlockSize, BlockValue, BucketSize,
 //!             Oram, CircuitOram, StashSize, RecursionCutoff};
-//! use oram::circuit_oram::{DEFAULT_BLOCKS_PER_BUCKET, DEFAULT_RECURSION_CUTOFF,
+//! use circuit_oram::circuit_oram::{DEFAULT_BLOCKS_PER_BUCKET, DEFAULT_RECURSION_CUTOFF,
 //!             DEFAULT_POSITIONS_PER_BLOCK, DEFAULT_STASH_OVERFLOW_SIZE};
-//! # use oram::OramError;
-//! # let mut rng = rand::rngs::OsRng;
+//! # use circuit_oram::OramError;
+//! # let mut rng = rand::rng();
 //! # const BLOCK_SIZE: BlockSize = 64;
 //! # const DB_SIZE: Address = 64;
 //!

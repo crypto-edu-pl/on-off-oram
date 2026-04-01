@@ -35,7 +35,7 @@
 //! const DB_SIZE: Address = 64;
 //! # const DATABASE: [[u8; BLOCK_SIZE as usize]; DB_SIZE as usize] =
 //! # [[0; BLOCK_SIZE as usize]; DB_SIZE as usize];
-//! let mut rng = rand::rngs::OsRng;
+//! let mut rng = rand::rng();
 //!
 //! // Initialize an ORAM to store 64 blocks of 64 bytes each.
 //! let mut oram = DefaultOram::<BlockValue<BLOCK_SIZE>>::new(DB_SIZE, &mut rng)?;
@@ -68,7 +68,7 @@
 //! use oram::path_oram::{DEFAULT_BLOCKS_PER_BUCKET, DEFAULT_RECURSION_CUTOFF,
 //!             DEFAULT_POSITIONS_PER_BLOCK, DEFAULT_STASH_OVERFLOW_SIZE};
 //! # use oram::OramError;
-//! # let mut rng = rand::rngs::OsRng;
+//! # let mut rng = rand::rng();
 //! # const BLOCK_SIZE: BlockSize = 64;
 //! # const DB_SIZE: Address = 64;
 //!
@@ -81,7 +81,7 @@
 //!     BlockValue<BLOCK_SIZE>,
 //!     BUCKET_SIZE,
 //!     POSITIONS_PER_BLOCK,
-//!     >::new_with_parameters(DB_SIZE, &mut rng, INITIAL_STASH_OVERFLOW_SIZE, RECURSION_CUTOFF)?;
+//!     >::new_with_parameters(DB_SIZE, &mut rng, INITIAL_STASH_OVERFLOW_SIZE, RECURSION_CUTOFF, 1)?;
 //! # Ok::<(), OramError>(())
 //! ```
 //!

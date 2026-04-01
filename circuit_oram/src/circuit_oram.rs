@@ -336,7 +336,11 @@ impl<V: OramBlock, const Z: BucketSize, const AB: BlockSize> CircuitOram<V, Z, A
 
     /// Choose the next eviction path using the reverse-lexicographic order
     fn next_eviction_path(&mut self) -> TreeIndex {
-        let path = (1 << self.height) + (self.timestep.reverse_bits() >> (64 - self.height));
+        let path = (1 << self.height)
+            + (self
+                .timestep
+                .reverse_bits()
+                .unbounded_shr((64 - self.height) as u32));
         self.timestep = (self.timestep + 1) & ((1 << self.height) - 1);
         path
     }
@@ -359,7 +363,7 @@ impl<V: OramBlock, const Z: BucketSize, const AB: BlockSize> CircuitOram<V, Z, A
             }
 
             let bucket_idx = if i > 0 {
-                path.ct_node_on_path(self.height, i - 1)
+                path.ct_node_on_path(i - 1, self.height)
             } else {
                 0
             };
@@ -442,8 +446,7 @@ impl<V: OramBlock, const Z: BucketSize, const AB: BlockSize> CircuitOram<V, Z, A
             let entry_deepest_level = get_block(&entry)
                 .position
                 .deepest_common_ancestor_of_leaves(&path)
-                .ct_depth_unchecked()
-                + 1;
+                .ct_level_unchecked();
             let found_new_deepest =
                 !get_block(&entry).ct_is_dummy() & entry_deepest_level.ct_gt(&deepest_level);
 
@@ -795,14 +798,12 @@ mod tests {
     #[test]
     fn default_oram_linear_correctness() {
         let mut rng = StdRng::seed_from_u64(0);
-        let mut oram = DefaultOram::<BlockValue<1>>::new(64, &mut rng).unwrap();
+        let mut oram = DefaultOram::<BlockValue<1>>::new(32, &mut rng).unwrap();
         assert!(matches!(oram.0, DefaultOramBackend::Linear(_)));
         random_workload(&mut oram, 1000);
     }
 
-    // This test is #[ignore]'d because it takes about 1 second to run.
     #[test]
-    #[ignore]
     fn default_oram_path_correctness() {
         let mut rng = StdRng::seed_from_u64(0);
         let mut oram = DefaultOram::<BlockValue<1>>::new(2048, &mut rng).unwrap();

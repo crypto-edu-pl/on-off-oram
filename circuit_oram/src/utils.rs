@@ -24,7 +24,7 @@ where
         rng: &mut R,
     ) -> Result<Self, TryFromIntError>;
     fn ct_depth(&self) -> TreeHeight;
-    fn ct_depth_unchecked(&self) -> TreeHeight;
+    fn ct_level_unchecked(&self) -> TreeHeight;
     fn is_leaf(&self, height: TreeHeight) -> bool;
     fn deepest_common_ancestor_of_leaves(&self, other: &Self) -> Self;
 }
@@ -61,10 +61,10 @@ impl CompleteBinaryTreeIndex for TreeIndex {
         index_bitlength - leading_zeroes - 1
     }
 
-    fn ct_depth_unchecked(&self) -> TreeHeight {
+    fn ct_level_unchecked(&self) -> TreeHeight {
         let leading_zeroes: u64 = self.leading_zeros().into();
         let index_bitlength = 64;
-        index_bitlength - leading_zeroes - 1
+        index_bitlength - leading_zeroes
     }
 
     fn is_leaf(&self, height: TreeHeight) -> bool {

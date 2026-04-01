@@ -8,7 +8,7 @@ use simplelog::SimpleLogger;
 use static_assertions::const_assert;
 use subtle::{Choice, ConditionallySelectable, ConstantTimeEq};
 
-use path_oram::{Oram, OramBlock, OramError, path_oram::LINEAR_TIME_ORAM_CUTOFF};
+use evaluation::oram_proxy::oram::{LINEAR_TIME_ORAM_CUTOFF, Oram, OramBlock, OramError};
 
 use evaluation::{
     bin_utils::{BenchmarkResult, BenchmarkStats, benchmark_stats},

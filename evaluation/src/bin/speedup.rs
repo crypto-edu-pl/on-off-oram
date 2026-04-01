@@ -11,23 +11,23 @@ use rand::{
 use simplelog::SimpleLogger;
 use static_assertions::const_assert;
 
-use path_oram::{BlockValue, Oram, OramError, path_oram::LINEAR_TIME_ORAM_CUTOFF};
+use evaluation::oram_proxy::oram::{BlockValue, LINEAR_TIME_ORAM_CUTOFF, Oram, OramError};
 
 #[cfg(not(feature = "bypass_oram"))]
-use path_oram::DefaultOram;
+use evaluation::oram_proxy::oram::DefaultOram;
 
 #[cfg(feature = "bypass_oram")]
 use evaluation::not_really_oram::NotReallyOram;
 
 use evaluation::bin_utils::{BenchmarkResult, BenchmarkStats, benchmark_stats};
 
-const ARRAY_SIZE: u64 = 1 << 17;
+const ARRAY_SIZE: u64 = 1 << 12;
 
 const_assert!(ARRAY_SIZE >= LINEAR_TIME_ORAM_CUTOFF);
 
 const N_UNIQUE_ADDRESSES: [u64; 1] = [100];
 
-const AVERAGE_N_ACCESSES_PER_ADDR: [u64; 10] = [1, 2, 3, 4, 5, 6, 7, 8, 9, 10];
+const AVERAGE_N_ACCESSES_PER_ADDR: [u64; 1] = [1];
 
 const N_BENCHMARK_REPETITIONS: u32 = 20;
 

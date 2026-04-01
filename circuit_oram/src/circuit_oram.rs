@@ -16,9 +16,9 @@ use std::collections::hash_map;
 
 use rand::{CryptoRng, RngExt};
 
-#[cfg(not(feature = "full_reconstruction"))]
-use subtle::ConstantTimeEq;
-use subtle::{Choice, ConditionallySelectable, ConstantTimeGreater, ConstantTimeLess};
+use subtle::{
+    Choice, ConditionallySelectable, ConstantTimeEq, ConstantTimeGreater, ConstantTimeLess,
+};
 
 use super::{position_map::PositionMap, stash::ObliviousStash};
 use crate::{

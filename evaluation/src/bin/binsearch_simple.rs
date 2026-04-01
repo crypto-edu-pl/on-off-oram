@@ -9,10 +9,10 @@ use rand::{CryptoRng, distr::Uniform, prelude::Distribution};
 use simplelog::SimpleLogger;
 use static_assertions::const_assert;
 
-use path_oram::{Address, Oram, OramError, path_oram::LINEAR_TIME_ORAM_CUTOFF};
+use evaluation::oram_proxy::oram::{Address, LINEAR_TIME_ORAM_CUTOFF, Oram, OramError};
 
 #[cfg(not(feature = "bypass_oram"))]
-use path_oram::DefaultOram;
+use evaluation::oram_proxy::oram::DefaultOram;
 
 #[cfg(feature = "bypass_oram")]
 use evaluation::not_really_oram::NotReallyOram;

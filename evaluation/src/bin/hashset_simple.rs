@@ -5,7 +5,7 @@ use rand::{CryptoRng, RngExt, distr::StandardUniform, rng};
 use simplelog::SimpleLogger;
 use static_assertions::const_assert;
 
-use path_oram::{Oram, path_oram::LINEAR_TIME_ORAM_CUTOFF};
+use evaluation::oram_proxy::oram::{LINEAR_TIME_ORAM_CUTOFF, Oram};
 
 use evaluation::hashset::OramHashSet;
 

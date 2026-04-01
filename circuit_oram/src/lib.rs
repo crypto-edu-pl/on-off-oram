@@ -109,6 +109,7 @@ pub(crate) mod utils;
 pub use crate::bucket::BlockValue;
 pub use crate::circuit_oram::CircuitOram;
 pub use crate::circuit_oram::DefaultOram;
+pub use crate::circuit_oram::LINEAR_TIME_ORAM_CUTOFF;
 
 /// The numeric type used to specify the size of an ORAM block in bytes.
 pub type BlockSize = usize;
